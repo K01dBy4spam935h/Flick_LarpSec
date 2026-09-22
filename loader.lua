@@ -9,8 +9,8 @@
 -- ═══════════════════════════════════════════════════════════
 --  CONFIG — change these two lines only
 -- ═══════════════════════════════════════════════════════════
-local GITHUB_USER = "YOUR_USER"
-local GITHUB_REPO = "YOUR_REPO"
+local GITHUB_USER = "K01dBy4spam935h"
+local GITHUB_REPO = "Flick_LarpSec"
 local BRANCH      = "main"
 -- ═══════════════════════════════════════════════════════════
 
