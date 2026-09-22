@@ -1,12 +1,13 @@
 --[[
     Flick · Silent Aim
-    BulletHandler.Fire rewrite only · no metamethods
+    BulletHandler.Fire · no prediction (hitscan)
 ]]
 
 local Silent = {}
 
 local Players          = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
+local RunService       = game:GetService("RunService")
 local ReplicatedStorage= game:GetService("ReplicatedStorage")
 local Camera           = workspace.CurrentCamera
 local LocalPlayer      = Players.LocalPlayer
@@ -16,10 +17,10 @@ Silent.Config = {
     FOV          = 140,
     HitPart      = "Head",
     VisibleCheck = true,
-    Prediction   = 0.135,
     ShowFOV      = true,
-    FOVColor     = Color3.fromRGB(140, 80, 255),
+    FOVColor     = Color3.fromRGB(120, 90, 255),
     FOVThickness = 1.5,
+    Sticky       = false,
 }
 
 local FOVCircle = Drawing.new("Circle")
@@ -30,6 +31,8 @@ FOVCircle.Color     = Silent.Config.FOVColor
 FOVCircle.Visible   = false
 FOVCircle.ZIndex    = 2
 
+local stickyTarget = nil
+
 local function GetChar(plr) return plr and plr.Character end
 local function GetHum(c) return c and c:FindFirstChildOfClass("Humanoid") end
 local function GetRoot(c)
@@ -37,7 +40,8 @@ local function GetRoot(c)
 end
 local function GetPart(c, n) return c and c:FindFirstChild(n) end
 local function Alive(plr)
-    local c, h = GetChar(plr), GetHum(GetChar(plr))
+    local c = GetChar(plr)
+    local h = GetHum(c)
     return c and h and h.Health > 0
 end
 
@@ -53,6 +57,21 @@ local function Visible(part)
 end
 
 local function GetClosest()
+    if Silent.Config.Sticky and stickyTarget then
+        local char = stickyTarget.Parent
+        local hum = GetHum(char)
+        if hum and hum.Health > 0 and Visible(stickyTarget) then
+            local sp, on = Camera:WorldToViewportPoint(stickyTarget.Position)
+            if on then
+                local d = (Vector2.new(sp.X, sp.Y) - UserInputService:GetMouseLocation()).Magnitude
+                if d <= Silent.Config.FOV then
+                    return stickyTarget
+                end
+            end
+        end
+        stickyTarget = nil
+    end
+
     local best, bestDist = nil, Silent.Config.FOV
     local mouse = UserInputService:GetMouseLocation()
 
@@ -69,6 +88,10 @@ local function GetClosest()
             bestDist = d
             best = part
         end
+    end
+
+    if Silent.Config.Sticky then
+        stickyTarget = best
     end
     return best
 end
@@ -106,19 +129,13 @@ function Silent.Init()
             local target = GetClosest()
             if target then
                 local origin = data.Origin or Camera.CFrame.Position
-                local pos = target.Position
-                if Silent.Config.Prediction > 0 then
-                    local vel = target.AssemblyLinearVelocity or Vector3.zero
-                    pos = pos + vel * Silent.Config.Prediction
-                end
-                data.Direction = (pos - origin).Unit
+                data.Direction = (target.Position - origin).Unit
             end
         end
         return oldFire(data)
     end
 
-    -- FOV render
-    game:GetService("RunService").RenderStepped:Connect(function()
+    RunService.RenderStepped:Connect(function()
         if Silent.Config.Enabled and Silent.Config.ShowFOV then
             FOVCircle.Position = UserInputService:GetMouseLocation()
             FOVCircle.Radius   = Silent.Config.FOV
@@ -129,7 +146,6 @@ function Silent.Init()
         end
     end)
 
-    print("[Silent] BulletHandler.Fire hooked")
     return true
 end
 
