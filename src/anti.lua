@@ -1,6 +1,7 @@
 --[[
-    Flick · Adonis Anti-Exploit Bypass
-    Verified · keeps heartbeat · spoofs Detected integrity
+    Flick · Adonis Anti-Exploit Bypass (hard)
+    Continuous re-hook · Detected spoof · detector neuter · kick swallow
+    Designed for long sessions
 ]]
 
 local Anti = {}
@@ -16,27 +17,28 @@ local function findClosures()
             local kil = rawget(v, "Kill")
             local dis = rawget(v, "Disconnect")
 
-            if type(det) == "function" and not DetectedFunc then
+            if type(det) == "function" then
                 local isAdonis = false
                 pcall(function()
                     local consts = debug.getconstants(det)
                     for _, c in pairs(consts) do
-                        if type(c) == "string" and (c:find("On Xbox") or c:find("On mobile") or c:find("Adonis") or c:find("Tamper") or c:find("Anti")) then
+                        if type(c) == "string" and (c:find("On Xbox") or c:find("On mobile") or c:find("Adonis") or c:find("Tamper") or c:find("Anti") or c:find("0x")) then
                             isAdonis = true
                             break
                         end
                     end
                 end)
-                if isAdonis or type(kil) == "function" or rawget(v, "Variables") then
+                if isAdonis or type(kil) == "function" or rawget(v, "Variables") or rawget(v, "Process") then
                     DetectedFunc = det
                 end
             end
-            if type(kil) == "function" and not KillFunc then KillFunc = kil end
-            if type(dis) == "function" and not DisconnectFunc then DisconnectFunc = dis end
+            if type(kil) == "function" then KillFunc = kil end
+            if type(dis) == "function" then DisconnectFunc = dis end
         end
     end
 end
 
+local infoHooked = false
 local function hookDetected()
     if not DetectedFunc then return false end
 
@@ -50,25 +52,30 @@ local function hookDetected()
         cached.slanf = {debug.info(DetectedFunc, "slanf")}
     end)
 
-    local oldInfo
-    oldInfo = hookfunction(debug.info, newcclosure(function(...)
-        local target, what = ...
-        if target == DetectedFunc then
-            if what == "n" then return cached.n end
-            if what == "s" then return cached.s end
-            if what == "l" then return cached.l end
-            if what == "a" then return cached.a end
-            if what == "f" then return cached.f end
-            if what == "slanf" or what == "nsl" then
-                return unpack(cached.slanf or {})
+    if not infoHooked then
+        local oldInfo
+        oldInfo = hookfunction(debug.info, newcclosure(function(...)
+            local target, what = ...
+            if DetectedFunc and target == DetectedFunc then
+                if what == "n" then return cached.n end
+                if what == "s" then return cached.s end
+                if what == "l" then return cached.l end
+                if what == "a" then return cached.a end
+                if what == "f" then return cached.f end
+                if what == "slanf" or what == "nsl" then
+                    return unpack(cached.slanf or {})
+                end
             end
-        end
-        return oldInfo(...)
-    end))
+            return oldInfo(...)
+        end))
+        infoHooked = true
+    end
 
-    hookfunction(DetectedFunc, newcclosure(function()
-        return true
-    end))
+    pcall(function()
+        hookfunction(DetectedFunc, newcclosure(function()
+            return true
+        end))
+    end)
     return true
 end
 
@@ -85,9 +92,18 @@ local function neuterDetectors()
                 "indexEnum", "namecallEnum", "eqEnum"
             }) do
                 local entry = rawget(v, key)
-                if type(entry) == "table" and entry[1] == "kick" and type(entry[2]) == "function" then
+                if type(entry) == "table" and type(entry[2]) == "function" then
                     pcall(function()
                         rawset(entry, 2, function() return false end)
+                    end)
+                end
+            end
+            -- also neuter common Adonis action tables
+            for _, key in ipairs({"Detectors", "Launch", "RLocked"}) do
+                local val = rawget(v, key)
+                if type(val) == "function" then
+                    pcall(function()
+                        rawset(v, key, function() return true end)
                     end)
                 end
             end
@@ -112,12 +128,10 @@ end
 
 local function verifyBypass()
     local signals = 0
-
     if DetectedFunc then
         local ok, res = pcall(DetectedFunc, "kick", "test")
         if ok and res == true then signals = signals + 1 end
     end
-
     local detOk = true
     for _, v in pairs(getgc(true)) do
         if type(v) == "table" then
@@ -129,14 +143,11 @@ local function verifyBypass()
         end
     end
     if detOk then signals = signals + 1 end
-
     if KillFunc then
-        local ok = pcall(KillFunc, "test")
-        if ok then signals = signals + 1 end
+        if pcall(KillFunc, "test") then signals = signals + 1 end
     else
         signals = signals + 1
     end
-
     return signals >= 2
 end
 
@@ -147,12 +158,11 @@ function Anti.Init()
     neuterDetectors()
     protectKick()
 
-    task.delay(2.8, function()
+    task.delay(2.5, function()
         findClosures()
         hookDetected()
         hookKillDisconnect()
         neuterDetectors()
-
         bypassed = verifyBypass()
         if bypassed then
             print("Adonis Anti-Exploit Bypassed successfully")
@@ -161,23 +171,19 @@ function Anti.Init()
         end
     end)
 
+    -- aggressive long-session watchdog
     task.spawn(function()
         while true do
-            task.wait(7)
+            task.wait(4)
             findClosures()
-            if DetectedFunc then pcall(hookDetected) end
+            pcall(hookDetected)
             neuterDetectors()
             hookKillDisconnect()
         end
     end)
 end
 
-function Anti.IsBypassed()
-    return bypassed
-end
-
-function Anti.GetKickAttempts()
-    return kickAttempts
-end
+function Anti.IsBypassed() return bypassed end
+function Anti.GetKickAttempts() return kickAttempts end
 
 return Anti
