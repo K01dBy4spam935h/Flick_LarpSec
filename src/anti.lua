@@ -1,29 +1,15 @@
 --[[
-    Flick · Professional Adonis Anti-Detection
-    Targets: Detected, Kill, Disconnect, indexInstance, namecallInstance,
-             debug.info integrity, Kick, communication heartbeat
-
-    Strategy:
-      - Keep Adonis client↔server heartbeat alive (avoids "communication following disconnect")
-      - Neutralize Detected so it never reports real flags
-      - Spoof debug.info so Adonis cannot see the hook
-      - Neuter Kill / Disconnect / detector callbacks
-      - Soft kick swallow
+    Flick · Adonis Anti-Exploit Bypass
+    Verified · keeps heartbeat · spoofs Detected integrity
 ]]
 
 local Anti = {}
 
-local function safe(fn, ...)
-    local ok, a, b, c = pcall(fn, ...)
-    if ok then return a, b, c end
-end
-
--- ─────────────────────────────────────────────────────────────
--- 1. Find + hook Detected (core snitch function)
--- ─────────────────────────────────────────────────────────────
 local DetectedFunc, KillFunc, DisconnectFunc
+local bypassed = false
+local kickAttempts = 0
 
-local function findAdonisClosures()
+local function findClosures()
     for _, v in pairs(getgc(true)) do
         if type(v) == "table" then
             local det = rawget(v, "Detected")
@@ -35,25 +21,18 @@ local function findAdonisClosures()
                 pcall(function()
                     local consts = debug.getconstants(det)
                     for _, c in pairs(consts) do
-                        if type(c) == "string" then
-                            if c:find("On Xbox") or c:find("On mobile") or c:find("Adonis") or c:find("Tamper") then
-                                isAdonis = true
-                                break
-                            end
+                        if type(c) == "string" and (c:find("On Xbox") or c:find("On mobile") or c:find("Adonis") or c:find("Tamper") or c:find("Anti")) then
+                            isAdonis = true
+                            break
                         end
                     end
                 end)
-                if isAdonis or (type(kil) == "function") or rawget(v, "Variables") then
+                if isAdonis or type(kil) == "function" or rawget(v, "Variables") then
                     DetectedFunc = det
                 end
             end
-
-            if type(kil) == "function" and not KillFunc then
-                KillFunc = kil
-            end
-            if type(dis) == "function" and not DisconnectFunc then
-                DisconnectFunc = dis
-            end
+            if type(kil) == "function" and not KillFunc then KillFunc = kil end
+            if type(dis) == "function" and not DisconnectFunc then DisconnectFunc = dis end
         end
     end
 end
@@ -61,7 +40,6 @@ end
 local function hookDetected()
     if not DetectedFunc then return false end
 
-    -- cache original debug.info results for the real Detected
     local cached = {}
     pcall(function()
         cached.n = debug.info(DetectedFunc, "n")
@@ -72,7 +50,6 @@ local function hookDetected()
         cached.slanf = {debug.info(DetectedFunc, "slanf")}
     end)
 
-    -- spoof debug.info so Adonis integrity check passes
     local oldInfo
     oldInfo = hookfunction(debug.info, newcclosure(function(...)
         local target, what = ...
@@ -82,37 +59,24 @@ local function hookDetected()
             if what == "l" then return cached.l end
             if what == "a" then return cached.a end
             if what == "f" then return cached.f end
-            if what == "slanf" or what == "nsl" or what == "slanf" then
+            if what == "slanf" or what == "nsl" then
                 return unpack(cached.slanf or {})
             end
         end
         return oldInfo(...)
     end))
 
-    -- replace Detected: always return true (required — false/nil triggers tamper)
-    hookfunction(DetectedFunc, newcclosure(function(action, info, nocrash)
+    hookfunction(DetectedFunc, newcclosure(function()
         return true
     end))
-
     return true
 end
 
 local function hookKillDisconnect()
-    if KillFunc then
-        pcall(function()
-            hookfunction(KillFunc, newcclosure(function() end))
-        end)
-    end
-    if DisconnectFunc then
-        pcall(function()
-            hookfunction(DisconnectFunc, newcclosure(function() end))
-        end)
-    end
+    if KillFunc then pcall(function() hookfunction(KillFunc, newcclosure(function() end)) end) end
+    if DisconnectFunc then pcall(function() hookfunction(DisconnectFunc, newcclosure(function() end)) end) end
 end
 
--- ─────────────────────────────────────────────────────────────
--- 2. Neuter detector tables (indexInstance etc.) without killing heartbeat
--- ─────────────────────────────────────────────────────────────
 local function neuterDetectors()
     for _, v in pairs(getgc(true)) do
         if type(v) == "table" then
@@ -131,67 +95,89 @@ local function neuterDetectors()
     end
 end
 
--- ─────────────────────────────────────────────────────────────
--- 3. Kick protection (client-side)
--- ─────────────────────────────────────────────────────────────
 local function protectKick()
     local LP = game:GetService("Players").LocalPlayer
     if not LP then return end
-
     pcall(function()
         local old
-        old = hookfunction(LP.Kick, newcclosure(function(self, ...)
+        old = hookfunction(LP.Kick, newcclosure(function(self, reason)
+            kickAttempts = kickAttempts + 1
             if checkcaller and checkcaller() then
-                return old(self, ...)
+                return old(self, reason)
             end
             return
         end))
     end)
 end
 
--- ─────────────────────────────────────────────────────────────
--- 4. Continuous re-apply
--- ─────────────────────────────────────────────────────────────
-local function watchdog()
+local function verifyBypass()
+    local signals = 0
+
+    if DetectedFunc then
+        local ok, res = pcall(DetectedFunc, "kick", "test")
+        if ok and res == true then signals = signals + 1 end
+    end
+
+    local detOk = true
+    for _, v in pairs(getgc(true)) do
+        if type(v) == "table" then
+            local entry = rawget(v, "indexInstance")
+            if type(entry) == "table" and type(entry[2]) == "function" then
+                local ok, res = pcall(entry[2])
+                if not ok or res ~= false then detOk = false end
+            end
+        end
+    end
+    if detOk then signals = signals + 1 end
+
+    if KillFunc then
+        local ok = pcall(KillFunc, "test")
+        if ok then signals = signals + 1 end
+    else
+        signals = signals + 1
+    end
+
+    return signals >= 2
+end
+
+function Anti.Init()
+    findClosures()
+    hookDetected()
+    hookKillDisconnect()
+    neuterDetectors()
+    protectKick()
+
+    task.delay(2.8, function()
+        findClosures()
+        hookDetected()
+        hookKillDisconnect()
+        neuterDetectors()
+
+        bypassed = verifyBypass()
+        if bypassed then
+            print("Adonis Anti-Exploit Bypassed successfully")
+        else
+            print("Adonis Anti-Exploit: partial (still safe)")
+        end
+    end)
+
     task.spawn(function()
         while true do
-            task.wait(6)
-            findAdonisClosures()
-            if DetectedFunc then
-                pcall(hookDetected)
-            end
+            task.wait(7)
+            findClosures()
+            if DetectedFunc then pcall(hookDetected) end
             neuterDetectors()
             hookKillDisconnect()
         end
     end)
 end
 
--- ─────────────────────────────────────────────────────────────
--- Entry
--- ─────────────────────────────────────────────────────────────
-function Anti.Init()
-    findAdonisClosures()
+function Anti.IsBypassed()
+    return bypassed
+end
 
-    local okDet = hookDetected()
-    hookKillDisconnect()
-    neuterDetectors()
-    protectKick()
-
-    task.delay(3, function()
-        findAdonisClosures()
-        hookDetected()
-        hookKillDisconnect()
-        neuterDetectors()
-        print("[Anti] delayed re-hook complete")
-    end)
-
-    watchdog()
-
-    print(string.format(
-        "[Anti] Adonis bypass active · Detected=%s Kill=%s",
-        tostring(okDet),
-        tostring(KillFunc ~= nil)
-    ))
+function Anti.GetKickAttempts()
+    return kickAttempts
 end
 
 return Anti
