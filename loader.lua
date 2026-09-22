@@ -1,7 +1,6 @@
 --[[
-    Flick LarpSec · loader
-    set your github user/repo below, then:
-    loadstring(game:HttpGet("https://raw.githubusercontent.com/USER/REPO/main/loader.lua"))()
+    Flick LarpSec loader
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/K01dBy4spam935h/Flick_LarpSec/main/loader.lua"))()
 ]]
 
 local GITHUB_USER = "K01dBy4spam935h"
@@ -14,17 +13,19 @@ local function fetch(name)
     return loadstring(game:HttpGet(BASE .. name))()
 end
 
-local Anti   = fetch("anti.lua")
+local Anti = fetch("anti.lua")
 Anti.Init()
-task.wait(0.35)
+task.wait(0.3)
 
 local Silent = fetch("silent.lua")
 local ESP    = fetch("esp.lua")
+local Perf   = fetch("perf.lua")
 local UI     = fetch("ui.lua")
 
 task.spawn(function()
-    task.wait(1.1)
+    task.wait(1.0)
     Silent.Init()
 end)
 ESP.Init()
-UI.Init(Silent, ESP, Anti)
+Perf.Init()
+UI.Init(Silent, ESP, Anti, Perf)
