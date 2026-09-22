@@ -1,6 +1,6 @@
 --[[
     Flick · Silent Aim
-    BulletHandler.Fire · no prediction (hitscan)
+    Instant on fire · max FOV coverage · sticky · hit chance
 ]]
 
 local Silent = {}
@@ -14,13 +14,14 @@ local LocalPlayer      = Players.LocalPlayer
 
 Silent.Config = {
     Enabled      = true,
-    FOV          = 140,
+    FOV          = 180,
     HitPart      = "Head",
-    VisibleCheck = true,
+    VisibleCheck = false, -- off = hits through tiny gaps / soft cover
     ShowFOV      = true,
     FOVColor     = Color3.fromRGB(120, 90, 255),
     FOVThickness = 1.5,
-    Sticky       = false,
+    Sticky       = true,
+    HitChance    = 100, -- 1-100
 }
 
 local FOVCircle = Drawing.new("Circle")
@@ -60,11 +61,11 @@ local function GetClosest()
     if Silent.Config.Sticky and stickyTarget then
         local char = stickyTarget.Parent
         local hum = GetHum(char)
-        if hum and hum.Health > 0 and Visible(stickyTarget) then
+        if hum and hum.Health > 0 then
             local sp, on = Camera:WorldToViewportPoint(stickyTarget.Position)
             if on then
                 local d = (Vector2.new(sp.X, sp.Y) - UserInputService:GetMouseLocation()).Magnitude
-                if d <= Silent.Config.FOV then
+                if d <= Silent.Config.FOV * 1.15 then -- soft sticky extension
                     return stickyTarget
                 end
             end
@@ -78,15 +79,23 @@ local function GetClosest()
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr == LocalPlayer or not Alive(plr) then continue end
         local char = GetChar(plr)
-        local part = GetPart(char, Silent.Config.HitPart) or GetRoot(char)
-        if not part or not Visible(part) then continue end
-
-        local sp, on = Camera:WorldToViewportPoint(part.Position)
-        if not on then continue end
-        local d = (Vector2.new(sp.X, sp.Y) - mouse).Magnitude
-        if d < bestDist then
-            bestDist = d
-            best = part
+        -- try multiple parts for "tiny gaps"
+        local parts = {
+            GetPart(char, Silent.Config.HitPart),
+            GetPart(char, "Head"),
+            GetPart(char, "UpperTorso"),
+            GetRoot(char),
+        }
+        for _, part in ipairs(parts) do
+            if not part then continue end
+            if not Visible(part) then continue end
+            local sp, on = Camera:WorldToViewportPoint(part.Position)
+            if not on then continue end
+            local d = (Vector2.new(sp.X, sp.Y) - mouse).Magnitude
+            if d < bestDist then
+                bestDist = d
+                best = part
+            end
         end
     end
 
@@ -126,10 +135,13 @@ function Silent.Init()
     local oldFire = BH.Fire
     BH.Fire = function(data)
         if Silent.Config.Enabled and type(data) == "table" then
-            local target = GetClosest()
-            if target then
-                local origin = data.Origin or Camera.CFrame.Position
-                data.Direction = (target.Position - origin).Unit
+            if math.random(1, 100) <= Silent.Config.HitChance then
+                local target = GetClosest()
+                if target then
+                    local origin = data.Origin or Camera.CFrame.Position
+                    -- aim dead center of part for max surface
+                    data.Direction = (target.Position - origin).Unit
+                end
             end
         end
         return oldFire(data)
