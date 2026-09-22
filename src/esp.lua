@@ -1,6 +1,6 @@
 --[[
     Flick · ESP
-    Drawing API only
+    Boxes / Names / Distance / Tracers · colorable · no health (one-shot)
 ]]
 
 local ESP = {}
@@ -16,14 +16,9 @@ ESP.Config = {
     Boxes       = true,
     Names       = true,
     Distance    = true,
-    HealthBar   = true,
     Tracers     = true,
     MaxDistance = 1400,
-    BoxColor    = Color3.fromRGB(140, 80, 255),
-    NameColor   = Color3.fromRGB(255, 255, 255),
-    TracerColor = Color3.fromRGB(140, 80, 255),
-    HealthHigh  = Color3.fromRGB(80, 255, 120),
-    HealthLow   = Color3.fromRGB(255, 60, 60),
+    Color       = Color3.fromRGB(120, 90, 255),
     TracerFrom  = "Bottom",
 }
 
@@ -38,22 +33,20 @@ local function GetPart(c, n) return c and c:FindFirstChild(n) end
 
 local function Make(plr)
     local t = {
-        Box       = Drawing.new("Square"),
-        Name      = Drawing.new("Text"),
-        Distance  = Drawing.new("Text"),
-        HealthOut = Drawing.new("Square"),
-        HealthIn  = Drawing.new("Square"),
-        Tracer    = Drawing.new("Line"),
+        Box      = Drawing.new("Square"),
+        Name     = Drawing.new("Text"),
+        Distance = Drawing.new("Text"),
+        Tracer   = Drawing.new("Line"),
     }
     t.Box.Thickness = 1.5
     t.Box.Filled = false
-    t.Box.Color = ESP.Config.BoxColor
+    t.Box.Color = ESP.Config.Color
     t.Box.Visible = false
 
     t.Name.Size = 14
     t.Name.Center = true
     t.Name.Outline = true
-    t.Name.Color = ESP.Config.NameColor
+    t.Name.Color = Color3.new(1,1,1)
     t.Name.Font = 2
     t.Name.Visible = false
 
@@ -64,17 +57,8 @@ local function Make(plr)
     t.Distance.Font = 2
     t.Distance.Visible = false
 
-    t.HealthOut.Filled = false
-    t.HealthOut.Thickness = 1
-    t.HealthOut.Color = Color3.fromRGB(0, 0, 0)
-    t.HealthOut.Visible = false
-
-    t.HealthIn.Filled = true
-    t.HealthIn.Thickness = 0
-    t.HealthIn.Visible = false
-
     t.Tracer.Thickness = 1.2
-    t.Tracer.Color = ESP.Config.TracerColor
+    t.Tracer.Color = ESP.Config.Color
     t.Tracer.Visible = false
 
     Cache[plr] = t
@@ -98,6 +82,7 @@ local function Update()
     local lpRoot = GetRoot(GetChar(LocalPlayer))
     local mouse  = UserInputService:GetMouseLocation()
     local vp     = Camera.ViewportSize
+    local col    = ESP.Config.Color
 
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr == LocalPlayer then continue end
@@ -139,7 +124,7 @@ local function Update()
         if ESP.Config.Boxes then
             t.Box.Size = Vector2.new(width, height)
             t.Box.Position = Vector2.new(boxX, boxY)
-            t.Box.Color = ESP.Config.BoxColor
+            t.Box.Color = col
             t.Box.Visible = true
         else
             t.Box.Visible = false
@@ -148,7 +133,6 @@ local function Update()
         if ESP.Config.Names then
             t.Name.Text = plr.Name
             t.Name.Position = Vector2.new(rootPos.X, boxY - 16)
-            t.Name.Color = ESP.Config.NameColor
             t.Name.Visible = true
         else
             t.Name.Visible = false
@@ -162,22 +146,6 @@ local function Update()
             t.Distance.Visible = false
         end
 
-        if ESP.Config.HealthBar then
-            local pct = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
-            local barH, barW = height, 3
-            local barX = boxX - 6
-            t.HealthOut.Size = Vector2.new(barW + 2, barH + 2)
-            t.HealthOut.Position = Vector2.new(barX - 1, boxY - 1)
-            t.HealthOut.Visible = true
-            t.HealthIn.Size = Vector2.new(barW, barH * pct)
-            t.HealthIn.Position = Vector2.new(barX, boxY + barH * (1 - pct))
-            t.HealthIn.Color = ESP.Config.HealthLow:Lerp(ESP.Config.HealthHigh, pct)
-            t.HealthIn.Visible = true
-        else
-            t.HealthOut.Visible = false
-            t.HealthIn.Visible = false
-        end
-
         if ESP.Config.Tracers then
             local from
             if ESP.Config.TracerFrom == "Mouse" then
@@ -189,7 +157,7 @@ local function Update()
             end
             t.Tracer.From = from
             t.Tracer.To = Vector2.new(rootPos.X, boxY + height)
-            t.Tracer.Color = ESP.Config.TracerColor
+            t.Tracer.Color = col
             t.Tracer.Visible = true
         else
             t.Tracer.Visible = false
@@ -206,9 +174,7 @@ function ESP.Init()
         if plr ~= LocalPlayer then Make(plr) end
     end)
     Players.PlayerRemoving:Connect(Kill)
-
     RunService.RenderStepped:Connect(Update)
-    print("[ESP] Drawing ESP active")
 end
 
 return ESP
