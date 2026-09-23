@@ -1,20 +1,19 @@
 --[[
-    Flick · Silent + Magic Bullet (penetrate-step)
+    Flick · Silent Aim + Magic Bullet (hit-report path)
 
-    Architecture:
-      BulletHandler.Fire(data)  data.Origin, data.Direction
-      Server trusts Direction for aim; often validates Origin near shooter.
-      Pure "origin at target" fails validation → FX only, no damage.
+    Mapped:
+      BulletHandler.Fire(data) → client FX + server cast
+      Server re-validates Origin near shooter → pure Origin teleport = FX only
 
-    Magic strategy:
-      1. Ray from realOrigin → target
-      2. For each world hit that is NOT the target character, step Origin
-         just past that surface and continue
-      3. Final Origin is the furthest-forward free point still on the line
-         (as close to the player as possible while clear of walls)
-      4. Direction remains unit vector into the target
-      This keeps Origin within a more plausible distance of the shooter
-      than "spawn on their chest" while still clearing geometry.
+    Magic (working approach on games with client hit reports):
+      1. Keep Origin real (passes distance checks)
+      2. Silent still aims Direction at torso
+      3. Hook FireServer / namecall: if payload looks like a hit report
+         (Position, Instance, Part, Hit), rewrite to target part
+      4. Also patch data.Misc.CamCFrame when present (some Flick builds)
+
+    If Flick is fully server-raycast with no client hit remote, wallbang
+    cannot register damage from the client alone — toggle will still aim.
 ]]
 
 local Silent = {}
@@ -38,8 +37,6 @@ Silent.Config = {
     Sticky       = true,
     HitChance    = 100,
     MagicBullet  = false,
-    MagicSteps   = 10,   -- max wall steps
-    MagicPad     = 0.2,  -- studs past each surface
 }
 
 local FOVCircle = Drawing.new("Circle")
@@ -51,6 +48,7 @@ FOVCircle.Visible   = false
 FOVCircle.ZIndex    = 2
 
 local stickyTarget = nil
+local lastTarget = nil -- BasePart
 
 local function GetChar(plr) return plr and plr.Character end
 local function GetHum(c) return c and c:FindFirstChildOfClass("Humanoid") end
@@ -108,6 +106,7 @@ local function GetClosest()
             if on then
                 local d = (Vector2.new(sp.X, sp.Y) - UserInputService:GetMouseLocation()).Magnitude
                 if d <= Silent.Config.FOV * 1.2 then
+                    lastTarget = stickyTarget
                     return stickyTarget
                 end
             end
@@ -136,52 +135,66 @@ local function GetClosest()
     if Silent.Config.Sticky then
         stickyTarget = best
     end
+    lastTarget = best
     return best
 end
 
--- step Origin forward past non-target geometry; stop when LOS is clear to target
-local function MagicOrigin(realOrigin, targetPart)
-    local targetPos = targetPart.Position
-    local targetChar = targetPart.Parent
-    local toTarget = targetPos - realOrigin
-    local total = toTarget.Magnitude
-    if total < 0.5 then
-        return realOrigin, (total > 0 and toTarget.Unit or Camera.CFrame.LookVector)
+local function SpoofHitTable(t, part)
+    if type(t) ~= "table" or not part then return end
+    if t.Position ~= nil then t.Position = part.Position end
+    if t.Instance ~= nil then t.Instance = part end
+    if t.Part ~= nil then t.Part = part end
+    if t.Hit ~= nil and typeof(t.Hit) == "Instance" then t.Hit = part end
+    if t.Normal ~= nil then t.Normal = Vector3.new(0, 1, 0) end
+    if t.Distance ~= nil and type(t.Distance) == "number" then
+        local o = Camera.CFrame.Position
+        t.Distance = (part.Position - o).Magnitude
     end
-    local dir = toTarget.Unit
-    local origin = realOrigin
-    local pad = Silent.Config.MagicPad or 0.2
-    local maxSteps = Silent.Config.MagicSteps or 10
-
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {LocalPlayer.Character}
-
-    for _ = 1, maxSteps do
-        local remaining = (targetPos - origin).Magnitude
-        if remaining < 0.25 then
-            break
-        end
-        local hit = workspace:Raycast(origin, dir * remaining, params)
-        if not hit then
-            -- clear path from this origin
-            return origin, dir
-        end
-        if hit.Instance:IsDescendantOf(targetChar) then
-            -- next hit is the target itself — origin is good
-            return origin, dir
-        end
-        -- world geometry: step just past the surface
-        origin = hit.Position + dir * pad
-        -- safety: never go past the target
-        if (origin - realOrigin):Dot(dir) > total then
-            origin = targetPos - dir * 0.75
-            break
+    for _, v in pairs(t) do
+        if type(v) == "table" then
+            SpoofHitTable(v, part)
         end
     end
+end
 
-    -- fallback: short standoff from target (last resort)
-    return targetPos - dir * 0.75, dir
+local function InstallHitHooks()
+    -- namecall: catch FireServer hit reports
+    local ok, err = pcall(function()
+        local mt = getrawmetatable(game)
+        local old = mt.__namecall
+        setreadonly(mt, false)
+        mt.__namecall = newcclosure(function(self, ...)
+            local method = getnamecallmethod()
+            local args = {...}
+            if Silent.Config.MagicBullet and lastTarget and method == "FireServer" then
+                local name = tostring(self)
+                local lower = string.lower(name)
+                if lower:find("hit") or lower:find("damage") or lower:find("bullet") or lower:find("shot") or lower:find("gun") then
+                    for i, a in ipairs(args) do
+                        if typeof(a) == "Instance" and a:IsA("BasePart") then
+                            args[i] = lastTarget
+                        elseif typeof(a) == "Vector3" then
+                            args[i] = lastTarget.Position
+                        elseif type(a) == "table" then
+                            SpoofHitTable(a, lastTarget)
+                        end
+                    end
+                    return old(self, unpack(args))
+                end
+                -- also spoof generic tables that look like ray results
+                for _, a in ipairs(args) do
+                    if type(a) == "table" and (a.Position or a.Instance or a.Part) then
+                        SpoofHitTable(a, lastTarget)
+                    end
+                end
+            end
+            return old(self, ...)
+        end)
+        setreadonly(mt, true)
+    end)
+    if not ok then
+        warn("[Silent] namecall hook failed:", err)
+    end
 end
 
 local function FindBulletHandler()
@@ -218,22 +231,23 @@ function Silent.Init()
                 local target = GetClosest()
                 if target then
                     local realOrigin = data.Origin or Camera.CFrame.Position
-                    if Silent.Config.MagicBullet then
-                        local origin, dir = MagicOrigin(realOrigin, target)
-                        data.Origin = origin
-                        data.Direction = dir
-                    else
-                        local aimPos = target.Position
-                        local d = aimPos - realOrigin
-                        if d.Magnitude > 0.001 then
-                            data.Direction = d.Unit
-                        end
+                    local d = target.Position - realOrigin
+                    if d.Magnitude > 0.001 then
+                        data.Direction = d.Unit
+                    end
+                    -- do NOT move Origin (server rejects) — keep real origin
+                    if data.Misc and type(data.Misc) == "table" then
+                        pcall(function()
+                            data.Misc.CamCFrame = CFrame.new(realOrigin, target.Position)
+                        end)
                     end
                 end
             end
         end
         return oldFire(data)
     end
+
+    InstallHitHooks()
 
     RunService.RenderStepped:Connect(function()
         if Silent.Config.Enabled and Silent.Config.ShowFOV then
