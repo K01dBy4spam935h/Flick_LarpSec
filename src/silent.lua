@@ -1,19 +1,7 @@
 --[[
-    Flick · Silent Aim + Magic Bullet (hit-report path)
-
-    Mapped:
-      BulletHandler.Fire(data) → client FX + server cast
-      Server re-validates Origin near shooter → pure Origin teleport = FX only
-
-    Magic (working approach on games with client hit reports):
-      1. Keep Origin real (passes distance checks)
-      2. Silent still aims Direction at torso
-      3. Hook FireServer / namecall: if payload looks like a hit report
-         (Position, Instance, Part, Hit), rewrite to target part
-      4. Also patch data.Misc.CamCFrame when present (some Flick builds)
-
-    If Flick is fully server-raycast with no client hit remote, wallbang
-    cannot register damage from the client alone — toggle will still aim.
+    Flick · Silent Aim + Rage (insta-reload)
+    Direction-only silent · torso priority
+    Insta-reload: Misc.ReloadTime / AmmoCount on Fire data
 ]]
 
 local Silent = {}
@@ -36,7 +24,8 @@ Silent.Config = {
     FOVThickness = 1.5,
     Sticky       = true,
     HitChance    = 100,
-    MagicBullet  = false,
+    -- rage
+    InstaReload  = false,
 }
 
 local FOVCircle = Drawing.new("Circle")
@@ -48,7 +37,6 @@ FOVCircle.Visible   = false
 FOVCircle.ZIndex    = 2
 
 local stickyTarget = nil
-local lastTarget = nil -- BasePart
 
 local function GetChar(plr) return plr and plr.Character end
 local function GetHum(c) return c and c:FindFirstChildOfClass("Humanoid") end
@@ -106,7 +94,6 @@ local function GetClosest()
             if on then
                 local d = (Vector2.new(sp.X, sp.Y) - UserInputService:GetMouseLocation()).Magnitude
                 if d <= Silent.Config.FOV * 1.2 then
-                    lastTarget = stickyTarget
                     return stickyTarget
                 end
             end
@@ -135,66 +122,19 @@ local function GetClosest()
     if Silent.Config.Sticky then
         stickyTarget = best
     end
-    lastTarget = best
     return best
 end
 
-local function SpoofHitTable(t, part)
-    if type(t) ~= "table" or not part then return end
-    if t.Position ~= nil then t.Position = part.Position end
-    if t.Instance ~= nil then t.Instance = part end
-    if t.Part ~= nil then t.Part = part end
-    if t.Hit ~= nil and typeof(t.Hit) == "Instance" then t.Hit = part end
-    if t.Normal ~= nil then t.Normal = Vector3.new(0, 1, 0) end
-    if t.Distance ~= nil and type(t.Distance) == "number" then
-        local o = Camera.CFrame.Position
-        t.Distance = (part.Position - o).Magnitude
+local function ApplyInstaReload(data)
+    if not Silent.Config.InstaReload then return end
+    if type(data.Misc) ~= "table" then return end
+    local max = data.Misc.MaxAmmo
+    if type(max) == "number" and max > 0 then
+        data.Misc.AmmoCount = max
+    else
+        data.Misc.AmmoCount = 1
     end
-    for _, v in pairs(t) do
-        if type(v) == "table" then
-            SpoofHitTable(v, part)
-        end
-    end
-end
-
-local function InstallHitHooks()
-    -- namecall: catch FireServer hit reports
-    local ok, err = pcall(function()
-        local mt = getrawmetatable(game)
-        local old = mt.__namecall
-        setreadonly(mt, false)
-        mt.__namecall = newcclosure(function(self, ...)
-            local method = getnamecallmethod()
-            local args = {...}
-            if Silent.Config.MagicBullet and lastTarget and method == "FireServer" then
-                local name = tostring(self)
-                local lower = string.lower(name)
-                if lower:find("hit") or lower:find("damage") or lower:find("bullet") or lower:find("shot") or lower:find("gun") then
-                    for i, a in ipairs(args) do
-                        if typeof(a) == "Instance" and a:IsA("BasePart") then
-                            args[i] = lastTarget
-                        elseif typeof(a) == "Vector3" then
-                            args[i] = lastTarget.Position
-                        elseif type(a) == "table" then
-                            SpoofHitTable(a, lastTarget)
-                        end
-                    end
-                    return old(self, unpack(args))
-                end
-                -- also spoof generic tables that look like ray results
-                for _, a in ipairs(args) do
-                    if type(a) == "table" and (a.Position or a.Instance or a.Part) then
-                        SpoofHitTable(a, lastTarget)
-                    end
-                end
-            end
-            return old(self, ...)
-        end)
-        setreadonly(mt, true)
-    end)
-    if not ok then
-        warn("[Silent] namecall hook failed:", err)
-    end
+    data.Misc.ReloadTime = 0
 end
 
 local function FindBulletHandler()
@@ -226,8 +166,8 @@ function Silent.Init()
 
     local oldFire = BH.Fire
     BH.Fire = function(data)
-        if Silent.Config.Enabled and type(data) == "table" then
-            if math.random(1, 100) <= Silent.Config.HitChance then
+        if type(data) == "table" then
+            if Silent.Config.Enabled and math.random(1, 100) <= Silent.Config.HitChance then
                 local target = GetClosest()
                 if target then
                     local realOrigin = data.Origin or Camera.CFrame.Position
@@ -235,7 +175,6 @@ function Silent.Init()
                     if d.Magnitude > 0.001 then
                         data.Direction = d.Unit
                     end
-                    -- do NOT move Origin (server rejects) — keep real origin
                     if data.Misc and type(data.Misc) == "table" then
                         pcall(function()
                             data.Misc.CamCFrame = CFrame.new(realOrigin, target.Position)
@@ -243,11 +182,10 @@ function Silent.Init()
                     end
                 end
             end
+            ApplyInstaReload(data)
         end
         return oldFire(data)
     end
-
-    InstallHitHooks()
 
     RunService.RenderStepped:Connect(function()
         if Silent.Config.Enabled and Silent.Config.ShowFOV then
