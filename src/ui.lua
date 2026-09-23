@@ -16,13 +16,14 @@ function UI.Init(Silent, ESP, Anti, Perf)
 
     local Window = Lib:CreateWindow({
         Title = "Flick · LarpSec",
-        Size = Vector2.new(560, 460),
+        Size = Vector2.new(560, 480),
     })
 
     -- ── Combat ──────────────────────────────────────────────
     local TabCombat = Window:CreateTab("Combat")
     local GBSilent = TabCombat:CreateGroupbox("Silent Aim", "Left")
     local GBTarget = TabCombat:CreateGroupbox("Targeting", "Right")
+    local GBMagic  = TabCombat:CreateGroupbox("Magic Bullet", "Left")
 
     GBSilent:AddSection("Core")
     GBSilent:AddToggle({
@@ -47,21 +48,24 @@ function UI.Init(Silent, ESP, Anti, Perf)
         Callback = function(v) Silent.Config.ShowFOV = v end,
     })
 
-    GBSilent:AddSection("Magic Bullet")
-    GBSilent:AddToggle({
-        Text = "Magic Bullet",
+    GBMagic:AddSection("Wallshot")
+    GBMagic:AddToggle({
+        Text = "Enabled",
         Default = Silent.Config.MagicBullet,
         Callback = function(v) Silent.Config.MagicBullet = v end,
     })
-    GBSilent:AddSlider({
-        Text = "Magic Offset",
-        Min = 0.5, Max = 4, Default = math.floor((Silent.Config.MagicOffset or 1.25) * 100) / 100,
-        Callback = function(v) Silent.Config.MagicOffset = v end,
+    GBMagic:AddSlider({
+        Text = "Max Steps",
+        Min = 1, Max = 16, Default = Silent.Config.MagicSteps or 10,
+        Callback = function(v) Silent.Config.MagicSteps = v end,
     })
-    GBSilent:AddLabel("Moves shot origin to target")
-    GBSilent:AddLabel("Skips walls on client cast")
+    GBMagic:AddSlider({
+        Text = "Surface Pad",
+        Min = 1, Max = 50, Default = math.floor((Silent.Config.MagicPad or 0.2) * 100),
+        Callback = function(v) Silent.Config.MagicPad = v / 100 end,
+    })
 
-    GBTarget:AddSection("Hit Priority")
+    GBTarget:AddSection("Priority")
     GBTarget:AddDropdown({
         Text = "Hit Part",
         Values = {"Torso", "Head", "HumanoidRootPart", "UpperTorso"},
@@ -86,8 +90,6 @@ function UI.Init(Silent, ESP, Anti, Perf)
         Default = Silent.Config.Sticky,
         Callback = function(v) Silent.Config.Sticky = v end,
     })
-    GBTarget:AddLabel("Torso = largest one-shot")
-    GBTarget:AddLabel("Falls back to any body part")
 
     -- ── Visuals ─────────────────────────────────────────────
     local TabVisuals = Window:CreateTab("Visuals")
@@ -100,8 +102,6 @@ function UI.Init(Silent, ESP, Anti, Perf)
         Default = Perf.Config.Enabled,
         Callback = function(v) Perf.SetEnabled(v) end,
     })
-    GBPerf:AddLabel("Low quality · no shadows")
-    GBPerf:AddLabel("Particles culled · reversible")
 
     GBOverlay:AddSection("Counter")
     GBOverlay:AddToggle({
@@ -109,7 +109,6 @@ function UI.Init(Silent, ESP, Anti, Perf)
         Default = Perf.Config.ShowFPS,
         Callback = function(v) Perf.Config.ShowFPS = v end,
     })
-    GBOverlay:AddLabel("Drag freely on screen")
 
     -- ── ESP ─────────────────────────────────────────────────
     local TabESP = Window:CreateTab("ESP")
@@ -179,35 +178,29 @@ function UI.Init(Silent, ESP, Anti, Perf)
     -- ── Info ────────────────────────────────────────────────
     local TabInfo = Window:CreateTab("Info")
     local GBAdonis = TabInfo:CreateGroupbox("Adonis Bypass", "Left")
-    local GBArch = TabInfo:CreateGroupbox("Flick Architecture", "Right")
+    local GBArch = TabInfo:CreateGroupbox("Architecture", "Right")
     local GBCtrl = TabInfo:CreateGroupbox("Controls", "Left")
 
-    GBAdonis:AddSection("Status")
-    GBAdonis:AddLabel("Detected → always true")
+    GBAdonis:AddSection("Hooks")
+    GBAdonis:AddLabel("Detected → true")
     GBAdonis:AddLabel("Kill / Disconnect → no-op")
     GBAdonis:AddLabel("indexInstance → false")
-    GBAdonis:AddLabel("namecallInstance → false")
     GBAdonis:AddLabel("debug.info spoofed")
-    GBAdonis:AddLabel("Kick swallow active")
-    GBAdonis:AddLabel("Heartbeat preserved")
-    GBAdonis:AddLabel("Watchdog 3.5s re-hook")
-    GBAdonis:AddLabel("Prints success after verify")
+    GBAdonis:AddLabel("Kick swallow · heartbeat ok")
+    GBAdonis:AddLabel("Watchdog 3.5s")
 
-    GBArch:AddSection("Gun path")
-    GBArch:AddLabel("ModuleScripts.GunModules")
+    GBArch:AddSection("Gun")
     GBArch:AddLabel("BulletHandler.Fire(data)")
-    GBArch:AddLabel("data.Origin / data.Direction")
+    GBArch:AddLabel("Origin + Direction")
     GBArch:AddSection("Silent")
-    GBArch:AddLabel("Rewrites Direction only")
-    GBArch:AddSection("Magic Bullet")
-    GBArch:AddLabel("Origin → near target")
-    GBArch:AddLabel("Direction → into target")
-    GBArch:AddLabel("Cast starts past walls")
+    GBArch:AddLabel("Direction → torso priority")
+    GBArch:AddSection("Magic")
+    GBArch:AddLabel("Penetrate-step Origin")
+    GBArch:AddLabel("Past walls, near shooter")
 
     GBCtrl:AddSection("Keys")
-    GBCtrl:AddLabel("RightShift · toggle menu")
-    GBCtrl:AddLabel("Drag title bar only")
-    GBCtrl:AddLabel("Torso priority · one-shot")
+    GBCtrl:AddLabel("RightShift · menu")
+    GBCtrl:AddLabel("Title bar · drag")
 
     Window.Frame.Visible = true
 end
