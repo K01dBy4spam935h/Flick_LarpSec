@@ -1,6 +1,6 @@
 --[[
     Flick · Silent + Insta Reload
-    GunFramework = { new } only — live state is on controller objects (getgc)
+    Live gun state is not on GunFramework module — hunt upvalues / exact keys
 ]]
 
 local Silent = {}
@@ -35,7 +35,8 @@ FOVCircle.Visible   = false
 FOVCircle.ZIndex    = 2
 
 local stickyTarget = nil
-local gunControllers = {} -- weak-ish list of tables that look like gun state
+local stateTables = {} -- real gun controllers
+local scannedOnce = false
 
 local function GetChar(plr) return plr and plr.Character end
 local function GetHum(c) return c and c:FindFirstChildOfClass("Humanoid") end
@@ -124,110 +125,124 @@ local function GetClosest()
     return best
 end
 
-local function LooksLikeGunState(t)
-    if type(t) ~= "table" then return false end
-    local hasAmmo, hasReload, hasShot = false, false, false
-    local ok, _ = pcall(function()
-        for k, v in pairs(t) do
-            local lk = string.lower(tostring(k))
-            if type(v) == "number" or type(v) == "boolean" then
-                if lk:find("ammo") or lk:find("mag") or lk:find("clip") then hasAmmo = true end
-                if lk:find("reload") then hasReload = true end
-                if lk:find("shot") or lk:find("cooldown") or lk:find("debounce") then hasShot = true end
-            end
-        end
-    end)
-    return ok and ((hasAmmo and hasReload) or (hasAmmo and hasShot) or hasReload)
+local function IsOurTable(t)
+    return t == Silent or t == Silent.Config
 end
 
-local function ScanGunControllers()
-    gunControllers = {}
-    local ok, err = pcall(function()
+-- exact key match from Fire.Misc shape + common controller names
+local function IsGunState(t)
+    if type(t) ~= "table" or IsOurTable(t) then return false end
+    local ok, result = pcall(function()
+        local has = function(k)
+            return rawget(t, k) ~= nil
+        end
+        -- strong signals from probe
+        if has("AmmoCount") or has("MaxAmmo") or has("ReloadTime") then return true end
+        if has("ammo") or has("Ammo") or has("Magazine") or has("Mag") then return true end
+        if has("Reloading") or has("reloading") or has("IsReloading") then return true end
+        if has("NextShot") or has("nextShot") or has("CanFire") or has("canFire") then return true end
+        return false
+    end)
+    return ok and result
+end
+
+local function CollectStateTables()
+    stateTables = {}
+    local seen = {}
+    local function add(t)
+        if type(t) ~= "table" or seen[t] or IsOurTable(t) then return end
+        if IsGunState(t) then
+            seen[t] = true
+            table.insert(stateTables, t)
+        end
+    end
+
+    pcall(function()
         for _, obj in ipairs(getgc(true)) do
-            if type(obj) == "table" and LooksLikeGunState(obj) then
-                table.insert(gunControllers, obj)
+            if type(obj) == "table" then
+                add(obj)
+            elseif type(obj) == "function" then
+                local i = 1
+                while true do
+                    local name, val = debug.getupvalue(obj, i)
+                    if not name then break end
+                    if type(val) == "table" then
+                        add(val)
+                    end
+                    i = i + 1
+                    if i > 40 then break end
+                end
             end
         end
     end)
-    if not ok then
-        warn("[Rage] getgc scan failed: " .. tostring(err))
-        return 0
-    end
-    print("[Rage] gun-state tables found: " .. tostring(#gunControllers))
-    -- dump first match keys once
-    if gunControllers[1] then
+
+    print("[Rage] gun-state tables: " .. tostring(#stateTables))
+    if stateTables[1] and not scannedOnce then
+        scannedOnce = true
         local keys = {}
         pcall(function()
-            for k, v in pairs(gunControllers[1]) do
-                table.insert(keys, tostring(k) .. "=" .. typeof(v))
+            for k, v in pairs(stateTables[1]) do
+                table.insert(keys, tostring(k) .. "=" .. typeof(v) .. ":" .. tostring(v))
             end
         end)
         table.sort(keys)
-        print("[Rage] sample state keys: " .. table.concat(keys, ", "))
+        print("[Rage] sample: " .. table.concat(keys, " | "))
     end
-    return #gunControllers
+    return #stateTables
 end
 
-local function PatchGunControllers()
+local function PatchStateTables()
     local n = 0
-    for _, t in ipairs(gunControllers) do
+    for _, t in ipairs(stateTables) do
         pcall(function()
-            for k, v in pairs(t) do
-                local lk = string.lower(tostring(k))
+            local function set(k, v)
+                if rawget(t, k) ~= nil then
+                    rawset(t, k, v)
+                    n = n + 1
+                    print("[Rage] set " .. tostring(k) .. "=" .. tostring(v))
+                end
+            end
+
+            -- numbers
+            local maxAmmo = rawget(t, "MaxAmmo") or rawget(t, "maxAmmo") or rawget(t, "MagSize") or 1
+            if type(maxAmmo) ~= "number" then maxAmmo = 1 end
+
+            for _, k in ipairs({"AmmoCount", "ammo", "Ammo", "Magazine", "Mag", "Clip", "Rounds", "Chamber"}) do
+                local v = rawget(t, k)
                 if type(v) == "number" then
-                    if lk:find("reload") or lk:find("cooldown") or lk:find("nextfire")
-                        or lk:find("nextshot") or lk:find("debounc") or lk:find("delay") then
-                        rawset(t, k, 0)
-                        n = n + 1
-                    end
-                    if (lk:find("ammo") or lk:find("mag") or lk:find("clip") or lk:find("chamber")) and v <= 0 then
-                        local maxK = nil
-                        for k2, v2 in pairs(t) do
-                            local lk2 = string.lower(tostring(k2))
-                            if type(v2) == "number" and (lk2:find("max") or lk2:find("capacity")) then
-                                maxK = v2
-                                break
-                            end
-                        end
-                        rawset(t, k, maxK or 1)
-                        n = n + 1
-                    end
-                elseif type(v) == "boolean" then
-                    if lk:find("reload") or lk:find("reloading") then
-                        rawset(t, k, false)
-                        n = n + 1
-                    end
+                    rawset(t, k, maxAmmo)
+                    n = n + 1
+                    print("[Rage] set " .. k .. "=" .. tostring(maxAmmo))
+                end
+            end
+
+            for _, k in ipairs({"ReloadTime", "reloadTime", "ReloadDelay", "Cooldown", "FireCooldown", "NextShot", "nextShot", "Debounce"}) do
+                local v = rawget(t, k)
+                if type(v) == "number" then
+                    rawset(t, k, 0)
+                    n = n + 1
+                    print("[Rage] set " .. k .. "=0")
+                end
+            end
+
+            for _, k in ipairs({"Reloading", "reloading", "IsReloading", "isReloading"}) do
+                local v = rawget(t, k)
+                if type(v) == "boolean" then
+                    rawset(t, k, false)
+                    n = n + 1
+                    print("[Rage] set " .. k .. "=false")
+                end
+            end
+
+            for _, k in ipairs({"CanFire", "canFire", "Ready", "ready"}) do
+                local v = rawget(t, k)
+                if type(v) == "boolean" then
+                    rawset(t, k, true)
+                    n = n + 1
+                    print("[Rage] set " .. k .. "=true")
                 end
             end
         end)
-    end
-    return n
-end
-
-local function RefillInstances()
-    local n = 0
-    local roots = {}
-    if LocalPlayer.Character then table.insert(roots, LocalPlayer.Character) end
-    if LocalPlayer:FindFirstChild("Backpack") then table.insert(roots, LocalPlayer.Backpack) end
-
-    for _, root in ipairs(roots) do
-        for _, inst in ipairs(root:GetDescendants()) do
-            if inst:IsA("IntValue") or inst:IsA("NumberValue") then
-                local ln = string.lower(inst.Name)
-                if ln:find("ammo") or ln:find("mag") or ln:find("clip") or ln:find("round") then
-                    if inst.Value == 0 then
-                        inst.Value = 1
-                        n = n + 1
-                        print("[Rage] inst " .. inst:GetFullName() .. " →1")
-                    end
-                end
-                if ln:find("reload") then
-                    inst.Value = 0
-                    n = n + 1
-                    print("[Rage] inst " .. inst:GetFullName() .. " →0")
-                end
-            end
-        end
     end
     return n
 end
@@ -242,35 +257,22 @@ local function ApplyInstaReload(data)
         if type(max) ~= "number" or max < 1 then max = 1 end
         data.Misc.AmmoCount = max
         data.Misc.ReloadTime = 0
-        print("[Rage] Misc AmmoCount=" .. tostring(max) .. " ReloadTime=0")
-    else
-        warn("[Rage] no data.Misc")
+        print("[Rage] Misc ok")
     end
 
-    if #gunControllers == 0 then
-        ScanGunControllers()
+    if #stateTables == 0 then
+        CollectStateTables()
     end
-    local pc = PatchGunControllers()
-    print("[Rage] controller fields patched: " .. tostring(pc))
-
-    local ni = RefillInstances()
-    print("[Rage] instances touched: " .. tostring(ni))
+    local p = PatchStateTables()
+    print("[Rage] patches: " .. tostring(p))
 
     task.defer(function()
-        if Silent.Config.InstaReload then
-            PatchGunControllers()
-            RefillInstances()
-        end
+        if Silent.Config.InstaReload then PatchStateTables() end
     end)
-    task.delay(0.1, function()
+    task.delay(0.15, function()
         if Silent.Config.InstaReload then
-            PatchGunControllers()
-            RefillInstances()
-        end
-    end)
-    task.delay(0.5, function()
-        if Silent.Config.InstaReload then
-            PatchGunControllers()
+            CollectStateTables()
+            PatchStateTables()
         end
     end)
 end
@@ -322,7 +324,7 @@ function Silent.Init()
             end
             local ok, err = pcall(ApplyInstaReload, data)
             if not ok then
-                warn("[Rage] ApplyInstaReload error: " .. tostring(err))
+                warn("[Rage] error: " .. tostring(err))
             end
         end
         return oldFire(data)
@@ -330,9 +332,7 @@ function Silent.Init()
 
     task.spawn(function()
         task.wait(2)
-        if Silent.Config.InstaReload or true then
-            ScanGunControllers()
-        end
+        CollectStateTables()
     end)
 
     RunService.RenderStepped:Connect(function()
