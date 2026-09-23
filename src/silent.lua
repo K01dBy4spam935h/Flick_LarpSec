@@ -1,12 +1,20 @@
 --[[
-    Flick · Silent Aim + Magic Bullet
-    Architecture (mapped):
-      ReplicatedStorage.ModuleScripts.GunModules.BulletHandler.Fire(data)
-      data.Origin  = Vector3  (shot start — client trusted for cast start)
-      data.Direction = Vector3 unit (shot direction)
-    Silent: rewrite Direction toward torso (then any part)
-    Magic: move Origin to just in front of target along the shot line
-            so the cast never intersects intervening world geometry first
+    Flick · Silent + Magic Bullet (penetrate-step)
+
+    Architecture:
+      BulletHandler.Fire(data)  data.Origin, data.Direction
+      Server trusts Direction for aim; often validates Origin near shooter.
+      Pure "origin at target" fails validation → FX only, no damage.
+
+    Magic strategy:
+      1. Ray from realOrigin → target
+      2. For each world hit that is NOT the target character, step Origin
+         just past that surface and continue
+      3. Final Origin is the furthest-forward free point still on the line
+         (as close to the player as possible while clear of walls)
+      4. Direction remains unit vector into the target
+      This keeps Origin within a more plausible distance of the shooter
+      than "spawn on their chest" while still clearing geometry.
 ]]
 
 local Silent = {}
@@ -30,7 +38,8 @@ Silent.Config = {
     Sticky       = true,
     HitChance    = 100,
     MagicBullet  = false,
-    MagicOffset  = 1.25, -- studs in front of target along incoming dir
+    MagicSteps   = 10,   -- max wall steps
+    MagicPad     = 0.2,  -- studs past each surface
 }
 
 local FOVCircle = Drawing.new("Circle")
@@ -130,6 +139,51 @@ local function GetClosest()
     return best
 end
 
+-- step Origin forward past non-target geometry; stop when LOS is clear to target
+local function MagicOrigin(realOrigin, targetPart)
+    local targetPos = targetPart.Position
+    local targetChar = targetPart.Parent
+    local toTarget = targetPos - realOrigin
+    local total = toTarget.Magnitude
+    if total < 0.5 then
+        return realOrigin, (total > 0 and toTarget.Unit or Camera.CFrame.LookVector)
+    end
+    local dir = toTarget.Unit
+    local origin = realOrigin
+    local pad = Silent.Config.MagicPad or 0.2
+    local maxSteps = Silent.Config.MagicSteps or 10
+
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {LocalPlayer.Character}
+
+    for _ = 1, maxSteps do
+        local remaining = (targetPos - origin).Magnitude
+        if remaining < 0.25 then
+            break
+        end
+        local hit = workspace:Raycast(origin, dir * remaining, params)
+        if not hit then
+            -- clear path from this origin
+            return origin, dir
+        end
+        if hit.Instance:IsDescendantOf(targetChar) then
+            -- next hit is the target itself — origin is good
+            return origin, dir
+        end
+        -- world geometry: step just past the surface
+        origin = hit.Position + dir * pad
+        -- safety: never go past the target
+        if (origin - realOrigin):Dot(dir) > total then
+            origin = targetPos - dir * 0.75
+            break
+        end
+    end
+
+    -- fallback: short standoff from target (last resort)
+    return targetPos - dir * 0.75, dir
+end
+
 local function FindBulletHandler()
     local ok, mod = pcall(function()
         return require(
@@ -164,23 +218,16 @@ function Silent.Init()
                 local target = GetClosest()
                 if target then
                     local realOrigin = data.Origin or Camera.CFrame.Position
-                    local aimPos = target.Position
-                    local dir = (aimPos - realOrigin)
-                    local mag = dir.Magnitude
-                    if mag > 0.001 then
-                        dir = dir.Unit
-                    else
-                        dir = Camera.CFrame.LookVector
-                    end
-
                     if Silent.Config.MagicBullet then
-                        -- start the cast just in front of the target (past walls)
-                        -- keeps Direction valid and Origin close to target so wall geometry is skipped
-                        local offset = Silent.Config.MagicOffset or 1.25
-                        data.Origin = aimPos - dir * offset
+                        local origin, dir = MagicOrigin(realOrigin, target)
+                        data.Origin = origin
                         data.Direction = dir
                     else
-                        data.Direction = dir
+                        local aimPos = target.Position
+                        local d = aimPos - realOrigin
+                        if d.Magnitude > 0.001 then
+                            data.Direction = d.Unit
+                        end
                     end
                 end
             end
