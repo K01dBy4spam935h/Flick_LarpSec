@@ -1,6 +1,6 @@
 --[[
     Flick · Silent + Insta Reload
-    Hook GunFramework reload fns · patch upvalues · finish instantly
+    GunFramework.new → controller with Ammo / CanReload / reloadTime
 ]]
 
 local Silent = {}
@@ -35,7 +35,8 @@ FOVCircle.Visible   = false
 FOVCircle.ZIndex    = 2
 
 local stickyTarget = nil
-local reloadHooksDone = false
+local controllers = {} -- gun objects from GunFramework.new
+local hookedNew = false
 
 local function GetChar(plr) return plr and plr.Character end
 local function GetHum(c) return c and c:FindFirstChildOfClass("Humanoid") end
@@ -124,157 +125,128 @@ local function GetClosest()
     return best
 end
 
-local function PatchTableAmmo(t, depth)
-    if type(t) ~= "table" or depth > 3 then return 0 end
+local function IsController(t)
+    if type(t) ~= "table" then return false end
+    local ok, res = pcall(function()
+        -- signature from GunFramework.new constants
+        local hasAmmo = rawget(t, "Ammo") ~= nil or rawget(t, "ammo") ~= nil
+        local hasReload = rawget(t, "reloadTime") ~= nil or rawget(t, "ReloadTime") ~= nil
+            or rawget(t, "CanReload") ~= nil or rawget(t, "Reloading") ~= nil
+        return hasAmmo and hasReload
+    end)
+    return ok and res
+end
+
+local function TrackController(obj)
+    if not IsController(obj) then return false end
+    for _, c in ipairs(controllers) do
+        if c == obj then return true end
+    end
+    table.insert(controllers, obj)
+    local keys = {}
+    pcall(function()
+        for k, v in pairs(obj) do
+            table.insert(keys, tostring(k) .. "=" .. typeof(v))
+        end
+    end)
+    table.sort(keys)
+    print("[Rage] controller tracked keys: " .. table.concat(keys, ", "))
+    return true
+end
+
+local function PatchController(obj)
     local n = 0
     pcall(function()
         local maxAmmo = 1
-        for k, v in pairs(t) do
-            local lk = string.lower(tostring(k))
-            if type(v) == "number" and (lk:find("maxammo") or lk:find("magsize") or lk == "max") then
-                maxAmmo = v
+        for _, key in ipairs({"MaxAmmo", "maxAmmo", "MagSize", "magSize"}) do
+            local v = rawget(obj, key)
+            if type(v) == "number" and v > 0 then maxAmmo = v break end
+        end
+
+        local function set(k, v)
+            if rawget(obj, k) ~= nil then
+                rawset(obj, k, v)
+                n = n + 1
+                print("[Rage] " .. tostring(k) .. " → " .. tostring(v))
             end
         end
-        for k, v in pairs(t) do
-            local lk = string.lower(tostring(k))
-            if type(v) == "number" then
-                if lk:find("ammo") or lk:find("mag") or lk:find("clip") or lk:find("chamber") or lk:find("round") then
-                    if not lk:find("max") and not lk:find("size") then
-                        rawset(t, k, maxAmmo)
-                        n = n + 1
-                    end
+
+        set("Ammo", maxAmmo)
+        set("ammo", maxAmmo)
+        set("AmmoCount", maxAmmo)
+        set("Magazine", maxAmmo)
+        set("reloadTime", 0)
+        set("ReloadTime", 0)
+        set("Reloading", false)
+        set("reloading", false)
+        set("[Reloading]", false)
+        set("CanReload", true)
+        set("CanFire", true)
+        set("canFire", true)
+
+        -- nested
+        for k, v in pairs(obj) do
+            if type(v) == "table" then
+                local sub = v
+                if rawget(sub, "Ammo") ~= nil or rawget(sub, "reloadTime") ~= nil then
+                    n = n + PatchController(sub)
                 end
-                if lk:find("reloadtime") or lk:find("reload_time") or lk == "reloadtime"
-                    or lk:find("cooldown") or lk:find("nextshot") or lk:find("nextfire") then
-                    rawset(t, k, 0)
-                    n = n + 1
-                end
-            elseif type(v) == "boolean" then
-                if lk:find("reloading") or lk == "reload" then
-                    rawset(t, k, false)
-                    n = n + 1
-                end
-                if lk:find("canfire") or lk:find("canreload") or lk == "ready" then
-                    rawset(t, k, true)
-                    n = n + 1
-                end
-            elseif type(v) == "table" then
-                n = n + PatchTableAmmo(v, depth + 1)
             end
         end
     end)
     return n
 end
 
-local function PatchUpvalues(fn)
-    local n = 0
+local function PatchAllControllers()
+    local total = 0
+    for _, c in ipairs(controllers) do
+        total = total + PatchController(c)
+    end
+    return total
+end
+
+local function ScanExistingControllers()
+    local found = 0
     pcall(function()
-        local i = 1
-        while i <= 50 do
-            local name, val = debug.getupvalue(fn, i)
-            if not name then break end
-            local ln = string.lower(tostring(name))
-            if type(val) == "number" then
-                if ln:find("ammo") or ln:find("mag") or ln:find("clip") then
-                    debug.setupvalue(fn, i, 1)
-                    n = n + 1
-                    print("[Rage] upvalue " .. name .. "→1")
-                end
-                if ln:find("reload") or ln:find("cooldown") or ln:find("delay") then
-                    debug.setupvalue(fn, i, 0)
-                    n = n + 1
-                    print("[Rage] upvalue " .. name .. "→0")
-                end
-            elseif type(val) == "boolean" then
-                if ln:find("reload") then
-                    debug.setupvalue(fn, i, false)
-                    n = n + 1
-                    print("[Rage] upvalue " .. name .. "→false")
-                end
-                if ln:find("canfire") or ln:find("ready") then
-                    debug.setupvalue(fn, i, true)
-                    n = n + 1
-                end
-            elseif type(val) == "table" then
-                local p = PatchTableAmmo(val, 0)
-                n = n + p
-                if p > 0 then
-                    print("[Rage] upvalue table " .. name .. " patched " .. tostring(p))
-                end
+        for _, obj in ipairs(getgc(true)) do
+            if type(obj) == "table" and IsController(obj) then
+                if TrackController(obj) then found = found + 1 end
             end
-            i = i + 1
         end
     end)
-    return n
+    print("[Rage] gc controllers: " .. tostring(found) .. " total tracked: " .. tostring(#controllers))
 end
 
-local function IsGunFrameworkFn(fn)
-    local src = ""
-    pcall(function() src = tostring(debug.info(fn, "s")) end)
-    return src:find("GunFramework", 1, true) ~= nil
-end
-
-local function HookReloadFunctions()
-    if reloadHooksDone then return end
-    if not hookfunction then
-        warn("[Rage] hookfunction not available")
-        reloadHooksDone = true
+local function HookGunFrameworkNew()
+    if hookedNew then return end
+    local ok, GF = pcall(function()
+        return require(
+            ReplicatedStorage
+                :WaitForChild("ModuleScripts", 5)
+                :WaitForChild("GunModules", 5)
+                :WaitForChild("GunFramework", 5)
+        )
+    end)
+    if not ok or type(GF) ~= "table" or type(GF.new) ~= "function" then
+        warn("[Rage] GunFramework.new not found")
         return
     end
 
-    local hooked = 0
-    local listed = 0
-
-    pcall(function()
-        for _, obj in ipairs(getgc()) do
-            if type(obj) ~= "function" then continue end
-            if not IsGunFrameworkFn(obj) then continue end
-
-            local okc, consts = pcall(debug.getconstants, obj)
-            if not okc or type(consts) ~= "table" then continue end
-
-            local hasReload = false
-            for _, c in ipairs(consts) do
-                if type(c) == "string" then
-                    local l = string.lower(c)
-                    if l:find("reload", 1, true) or l == "canreload" or l == "[reloading]" then
-                        hasReload = true
-                        break
-                    end
+    local oldNew = GF.new
+    GF.new = function(...)
+        local obj = oldNew(...)
+        pcall(function()
+            if type(obj) == "table" then
+                TrackController(obj)
+                if Silent.Config.InstaReload then
+                    PatchController(obj)
                 end
             end
-            if not hasReload then continue end
-
-            listed = listed + 1
-            local name = ""
-            pcall(function() name = tostring(debug.info(obj, "n")) end)
-            print("[Rage] GF reload fn: " .. name)
-
-            if hooked >= 10 then continue end
-
-            local success, herr = pcall(function()
-                local old = obj
-                hookfunction(obj, function(...)
-                    if not Silent.Config.InstaReload then
-                        return old(...)
-                    end
-                    -- finish reload state instead of only skipping
-                    local p = PatchUpvalues(old)
-                    print("[Rage] insta reload (upvalues " .. tostring(p) .. ")")
-                    -- still call original in case it nets ammo — but zero waits via upvalues
-                    -- many reload fns yield; skip call to avoid 0.8s wait
-                    return
-                end)
-                hooked = hooked + 1
-            end)
-            if not success then
-                warn("[Rage] hook fail: " .. tostring(herr))
-            end
-        end
-    end)
-
-    print("[Rage] GF reload listed=" .. tostring(listed) .. " hooked=" .. tostring(hooked))
-    reloadHooksDone = true
+        end)
+        return obj
+    end
+    hookedNew = true
+    print("[Rage] GunFramework.new hooked")
 end
 
 local function ApplyInstaReload(data)
@@ -287,12 +259,27 @@ local function ApplyInstaReload(data)
         if type(max) ~= "number" or max < 1 then max = 1 end
         data.Misc.AmmoCount = max
         data.Misc.ReloadTime = 0
-        print("[Rage] Misc ok")
     end
 
-    if not reloadHooksDone then
-        HookReloadFunctions()
+    if #controllers == 0 then
+        ScanExistingControllers()
     end
+
+    local n = PatchAllControllers()
+    print("[Rage] controllers=" .. tostring(#controllers) .. " patches=" .. tostring(n))
+
+    task.defer(function()
+        if Silent.Config.InstaReload then PatchAllControllers() end
+    end)
+    task.delay(0.05, function()
+        if Silent.Config.InstaReload then PatchAllControllers() end
+    end)
+    task.delay(0.2, function()
+        if Silent.Config.InstaReload then PatchAllControllers() end
+    end)
+    task.delay(0.5, function()
+        if Silent.Config.InstaReload then PatchAllControllers() end
+    end)
 end
 
 local function FindBulletHandler()
@@ -322,6 +309,13 @@ function Silent.Init()
         return false
     end
 
+    HookGunFrameworkNew()
+    task.spawn(function()
+        task.wait(1)
+        ScanExistingControllers()
+        HookGunFrameworkNew()
+    end)
+
     local oldFire = BH.Fire
     BH.Fire = function(data)
         if type(data) == "table" then
@@ -347,11 +341,6 @@ function Silent.Init()
         end
         return oldFire(data)
     end
-
-    task.spawn(function()
-        task.wait(1.5)
-        HookReloadFunctions()
-    end)
 
     RunService.RenderStepped:Connect(function()
         if Silent.Config.Enabled and Silent.Config.ShowFOV then
