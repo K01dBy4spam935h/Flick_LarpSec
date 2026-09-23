@@ -1,6 +1,6 @@
 --[[
     Flick · Silent Aim
-    Instant on fire · max FOV coverage · sticky · hit chance
+    Torso primary · any body part fallback · sticky · hit chance
 ]]
 
 local Silent = {}
@@ -14,14 +14,15 @@ local LocalPlayer      = Players.LocalPlayer
 
 Silent.Config = {
     Enabled      = true,
-    FOV          = 180,
-    HitPart      = "Head",
-    VisibleCheck = false, -- off = hits through tiny gaps / soft cover
+    FOV          = 200,
+    HitPart      = "UpperTorso",
+    PreferTorso  = true,
+    VisibleCheck = false,
     ShowFOV      = true,
-    FOVColor     = Color3.fromRGB(120, 90, 255),
+    FOVColor     = Color3.fromRGB(74, 144, 226),
     FOVThickness = 1.5,
     Sticky       = true,
-    HitChance    = 100, -- 1-100
+    HitChance    = 100,
 }
 
 local FOVCircle = Drawing.new("Circle")
@@ -57,6 +58,31 @@ local function Visible(part)
     return hit == nil or hit.Instance:IsDescendantOf(part.Parent)
 end
 
+-- priority order: torso first when PreferTorso, else configured part, then full body
+local function CandidateParts(char)
+    local list = {}
+    if Silent.Config.PreferTorso then
+        local ut = GetPart(char, "UpperTorso") or GetPart(char, "Torso")
+        if ut then table.insert(list, ut) end
+        local hrp = GetPart(char, "HumanoidRootPart")
+        if hrp then table.insert(list, hrp) end
+        local head = GetPart(char, "Head")
+        if head then table.insert(list, head) end
+        for _, name in ipairs({"LowerTorso", "LeftUpperArm", "RightUpperArm", "LeftUpperLeg", "RightUpperLeg"}) do
+            local p = GetPart(char, name)
+            if p then table.insert(list, p) end
+        end
+    else
+        local primary = GetPart(char, Silent.Config.HitPart)
+        if primary then table.insert(list, primary) end
+        for _, name in ipairs({"UpperTorso", "Torso", "HumanoidRootPart", "Head"}) do
+            local p = GetPart(char, name)
+            if p and p ~= primary then table.insert(list, p) end
+        end
+    end
+    return list
+end
+
 local function GetClosest()
     if Silent.Config.Sticky and stickyTarget then
         local char = stickyTarget.Parent
@@ -65,7 +91,7 @@ local function GetClosest()
             local sp, on = Camera:WorldToViewportPoint(stickyTarget.Position)
             if on then
                 local d = (Vector2.new(sp.X, sp.Y) - UserInputService:GetMouseLocation()).Magnitude
-                if d <= Silent.Config.FOV * 1.15 then -- soft sticky extension
+                if d <= Silent.Config.FOV * 1.2 then
                     return stickyTarget
                 end
             end
@@ -79,15 +105,7 @@ local function GetClosest()
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr == LocalPlayer or not Alive(plr) then continue end
         local char = GetChar(plr)
-        -- try multiple parts for "tiny gaps"
-        local parts = {
-            GetPart(char, Silent.Config.HitPart),
-            GetPart(char, "Head"),
-            GetPart(char, "UpperTorso"),
-            GetRoot(char),
-        }
-        for _, part in ipairs(parts) do
-            if not part then continue end
+        for _, part in ipairs(CandidateParts(char)) do
             if not Visible(part) then continue end
             local sp, on = Camera:WorldToViewportPoint(part.Position)
             if not on then continue end
@@ -139,7 +157,6 @@ function Silent.Init()
                 local target = GetClosest()
                 if target then
                     local origin = data.Origin or Camera.CFrame.Position
-                    -- aim dead center of part for max surface
                     data.Direction = (target.Position - origin).Unit
                 end
             end
