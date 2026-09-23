@@ -23,7 +23,6 @@ function UI.Init(Silent, ESP, Anti, Perf)
     local TabCombat = Window:CreateTab("Combat")
     local GBSilent = TabCombat:CreateGroupbox("Silent Aim", "Left")
     local GBTarget = TabCombat:CreateGroupbox("Targeting", "Right")
-    local GBMagic  = TabCombat:CreateGroupbox("Magic Bullet", "Left")
 
     GBSilent:AddSection("Core")
     GBSilent:AddToggle({
@@ -47,15 +46,6 @@ function UI.Init(Silent, ESP, Anti, Perf)
         Default = Silent.Config.ShowFOV,
         Callback = function(v) Silent.Config.ShowFOV = v end,
     })
-
-    GBMagic:AddSection("Wallshot")
-    GBMagic:AddToggle({
-        Text = "Enabled",
-        Default = Silent.Config.MagicBullet,
-        Callback = function(v) Silent.Config.MagicBullet = v end,
-    })
-    GBMagic:AddLabel("Spoofs hit reports · Origin real")
-    GBMagic:AddLabel("Needs client hit remote to damage")
 
     GBTarget:AddSection("Priority")
     GBTarget:AddDropdown({
@@ -82,6 +72,23 @@ function UI.Init(Silent, ESP, Anti, Perf)
         Default = Silent.Config.Sticky,
         Callback = function(v) Silent.Config.Sticky = v end,
     })
+
+    -- ── Rage ────────────────────────────────────────────────
+    local TabRage = Window:CreateTab("Rage")
+    local GBRage = TabRage:CreateGroupbox("Gun", "Left")
+    local GBRageNote = TabRage:CreateGroupbox("Note", "Right")
+
+    GBRage:AddSection("Reload")
+    GBRage:AddToggle({
+        Text = "Insta Reload",
+        Default = Silent.Config.InstaReload,
+        Callback = function(v) Silent.Config.InstaReload = v end,
+    })
+
+    GBRageNote:AddSection("Info")
+    GBRageNote:AddLabel("Sets ReloadTime = 0")
+    GBRageNote:AddLabel("Restores AmmoCount on Fire")
+    GBRageNote:AddLabel("From Misc fields on shot data")
 
     -- ── Visuals ─────────────────────────────────────────────
     local TabVisuals = Window:CreateTab("Visuals")
@@ -183,12 +190,11 @@ function UI.Init(Silent, ESP, Anti, Perf)
 
     GBArch:AddSection("Gun")
     GBArch:AddLabel("BulletHandler.Fire(data)")
-    GBArch:AddLabel("Origin + Direction")
+    GBArch:AddLabel("Origin locked ~1.7 studs")
     GBArch:AddSection("Silent")
     GBArch:AddLabel("Direction → torso priority")
-    GBArch:AddSection("Magic")
-    GBArch:AddLabel("Penetrate-step Origin")
-    GBArch:AddLabel("Past walls, near shooter")
+    GBArch:AddSection("Rage")
+    GBArch:AddLabel("Misc.ReloadTime / AmmoCount")
 
     GBCtrl:AddSection("Keys")
     GBCtrl:AddLabel("RightShift · menu")
