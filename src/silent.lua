@@ -1,6 +1,6 @@
 --[[
     Flick · Silent + Insta Reload
-    Live gun state is not on GunFramework module — hunt upvalues / exact keys
+    No AmmoCount tables in gc — try reload function skip via constants
 ]]
 
 local Silent = {}
@@ -35,8 +35,7 @@ FOVCircle.Visible   = false
 FOVCircle.ZIndex    = 2
 
 local stickyTarget = nil
-local stateTables = {} -- real gun controllers
-local scannedOnce = false
+local reloadHooksDone = false
 
 local function GetChar(plr) return plr and plr.Character end
 local function GetHum(c) return c and c:FindFirstChildOfClass("Humanoid") end
@@ -125,126 +124,73 @@ local function GetClosest()
     return best
 end
 
-local function IsOurTable(t)
-    return t == Silent or t == Silent.Config
-end
-
--- exact key match from Fire.Misc shape + common controller names
-local function IsGunState(t)
-    if type(t) ~= "table" or IsOurTable(t) then return false end
-    local ok, result = pcall(function()
-        local has = function(k)
-            return rawget(t, k) ~= nil
-        end
-        -- strong signals from probe
-        if has("AmmoCount") or has("MaxAmmo") or has("ReloadTime") then return true end
-        if has("ammo") or has("Ammo") or has("Magazine") or has("Mag") then return true end
-        if has("Reloading") or has("reloading") or has("IsReloading") then return true end
-        if has("NextShot") or has("nextShot") or has("CanFire") or has("canFire") then return true end
-        return false
-    end)
-    return ok and result
-end
-
-local function CollectStateTables()
-    stateTables = {}
-    local seen = {}
-    local function add(t)
-        if type(t) ~= "table" or seen[t] or IsOurTable(t) then return end
-        if IsGunState(t) then
-            seen[t] = true
-            table.insert(stateTables, t)
+local function FunctionHasReloadConst(fn)
+    local ok, consts = pcall(debug.getconstants, fn)
+    if not ok or type(consts) ~= "table" then return false, {} end
+    local hits = {}
+    for _, c in ipairs(consts) do
+        if type(c) == "string" then
+            local l = string.lower(c)
+            if l:find("reload", 1, true) or l == "ammo" or l:find("magempty") or l:find("outofammo") then
+                table.insert(hits, c)
+            end
         end
     end
+    return #hits > 0, hits
+end
 
-    pcall(function()
-        for _, obj in ipairs(getgc(true)) do
-            if type(obj) == "table" then
-                add(obj)
-            elseif type(obj) == "function" then
-                local i = 1
-                while true do
-                    local name, val = debug.getupvalue(obj, i)
-                    if not name then break end
-                    if type(val) == "table" then
-                        add(val)
+local function HookReloadFunctions()
+    if reloadHooksDone then return end
+    local hooked = 0
+    local listed = 0
+
+    local ok, err = pcall(function()
+        for _, obj in ipairs(getgc()) do
+            if type(obj) == "function" then
+                local has, hits = FunctionHasReloadConst(obj)
+                if has then
+                    listed = listed + 1
+                    local info = ""
+                    pcall(function()
+                        info = tostring(debug.info(obj, "n")) .. " @ " .. tostring(debug.info(obj, "s"))
+                    end)
+                    print("[Rage] reload-const fn: " .. info .. " consts=[" .. table.concat(hits, ",") .. "]")
+
+                    -- only hook if name/source suggests reload, not every ammo string
+                    local shouldHook = false
+                    for _, h in ipairs(hits) do
+                        local l = string.lower(h)
+                        if l:find("reload") then shouldHook = true end
                     end
-                    i = i + 1
-                    if i > 40 then break end
+                    if shouldHook and hooked < 8 then
+                        local success, herr = pcall(function()
+                            local old = obj
+                            -- hookfunction if available
+                            if hookfunction then
+                                hookfunction(obj, function(...)
+                                    if Silent.Config.InstaReload then
+                                        print("[Rage] skipped reload fn")
+                                        return
+                                    end
+                                    return old(...)
+                                end)
+                                hooked = hooked + 1
+                            end
+                        end)
+                        if not success then
+                            warn("[Rage] hook failed: " .. tostring(herr))
+                        end
+                    end
                 end
             end
         end
     end)
 
-    print("[Rage] gun-state tables: " .. tostring(#stateTables))
-    if stateTables[1] and not scannedOnce then
-        scannedOnce = true
-        local keys = {}
-        pcall(function()
-            for k, v in pairs(stateTables[1]) do
-                table.insert(keys, tostring(k) .. "=" .. typeof(v) .. ":" .. tostring(v))
-            end
-        end)
-        table.sort(keys)
-        print("[Rage] sample: " .. table.concat(keys, " | "))
+    if not ok then
+        warn("[Rage] reload scan error: " .. tostring(err))
     end
-    return #stateTables
-end
-
-local function PatchStateTables()
-    local n = 0
-    for _, t in ipairs(stateTables) do
-        pcall(function()
-            local function set(k, v)
-                if rawget(t, k) ~= nil then
-                    rawset(t, k, v)
-                    n = n + 1
-                    print("[Rage] set " .. tostring(k) .. "=" .. tostring(v))
-                end
-            end
-
-            -- numbers
-            local maxAmmo = rawget(t, "MaxAmmo") or rawget(t, "maxAmmo") or rawget(t, "MagSize") or 1
-            if type(maxAmmo) ~= "number" then maxAmmo = 1 end
-
-            for _, k in ipairs({"AmmoCount", "ammo", "Ammo", "Magazine", "Mag", "Clip", "Rounds", "Chamber"}) do
-                local v = rawget(t, k)
-                if type(v) == "number" then
-                    rawset(t, k, maxAmmo)
-                    n = n + 1
-                    print("[Rage] set " .. k .. "=" .. tostring(maxAmmo))
-                end
-            end
-
-            for _, k in ipairs({"ReloadTime", "reloadTime", "ReloadDelay", "Cooldown", "FireCooldown", "NextShot", "nextShot", "Debounce"}) do
-                local v = rawget(t, k)
-                if type(v) == "number" then
-                    rawset(t, k, 0)
-                    n = n + 1
-                    print("[Rage] set " .. k .. "=0")
-                end
-            end
-
-            for _, k in ipairs({"Reloading", "reloading", "IsReloading", "isReloading"}) do
-                local v = rawget(t, k)
-                if type(v) == "boolean" then
-                    rawset(t, k, false)
-                    n = n + 1
-                    print("[Rage] set " .. k .. "=false")
-                end
-            end
-
-            for _, k in ipairs({"CanFire", "canFire", "Ready", "ready"}) do
-                local v = rawget(t, k)
-                if type(v) == "boolean" then
-                    rawset(t, k, true)
-                    n = n + 1
-                    print("[Rage] set " .. k .. "=true")
-                end
-            end
-        end)
-    end
-    return n
+    print("[Rage] reload-const functions listed: " .. tostring(listed) .. " hooked: " .. tostring(hooked))
+    reloadHooksDone = true
 end
 
 local function ApplyInstaReload(data)
@@ -260,19 +206,20 @@ local function ApplyInstaReload(data)
         print("[Rage] Misc ok")
     end
 
-    if #stateTables == 0 then
-        CollectStateTables()
+    if not reloadHooksDone then
+        HookReloadFunctions()
     end
-    local p = PatchStateTables()
-    print("[Rage] patches: " .. tostring(p))
 
+    -- try fire local Reload remote as "done" — may no-op or error; pcall only
     task.defer(function()
-        if Silent.Config.InstaReload then PatchStateTables() end
-    end)
-    task.delay(0.15, function()
-        if Silent.Config.InstaReload then
-            CollectStateTables()
-            PatchStateTables()
+        if not Silent.Config.InstaReload then return end
+        local cr = LocalPlayer:FindFirstChild("ClientRemotes")
+        if cr then
+            local rel = cr:FindFirstChild("Reload")
+            if rel and rel:IsA("RemoteEvent") then
+                -- do not FireServer — server may interpret as start reload
+                print("[Rage] ClientRemotes.Reload present (not auto-fired)")
+            end
         end
     end)
 end
@@ -332,7 +279,9 @@ function Silent.Init()
 
     task.spawn(function()
         task.wait(2)
-        CollectStateTables()
+        if Silent.Config.InstaReload then
+            HookReloadFunctions()
+        end
     end)
 
     RunService.RenderStepped:Connect(function()
