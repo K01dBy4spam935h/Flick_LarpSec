@@ -418,12 +418,12 @@ end
 -- ─── Groupbox elements ───────────────────────────────────────
 function Groupbox:AddSection(text)
     local row = Create("Frame", {
-        Size = UDim2.new(1, 0, 0, 22),
+        Size = UDim2.new(1, 0, 0, 20),
         BackgroundTransparency = 1,
         Parent = self.Body,
     })
     Create("TextLabel", {
-        Size = UDim2.new(1, -4, 0, 14),
+        Size = UDim2.new(1, -4, 0, 13),
         Position = UDim2.fromOffset(2, 0),
         BackgroundTransparency = 1,
         Text = text,
@@ -433,10 +433,11 @@ function Groupbox:AddSection(text)
         TextXAlignment = Enum.TextXAlignment.Left,
         Parent = row,
     })
+    -- stronger underline
     Create("Frame", {
-        Size = UDim2.new(1, -4, 0, 1),
-        Position = UDim2.fromOffset(2, 16),
-        BackgroundColor3 = Theme.Border,
+        Size = UDim2.new(1, -4, 0, 2),
+        Position = UDim2.fromOffset(2, 15),
+        BackgroundColor3 = Color3.fromRGB(70, 70, 78),
         BorderSizePixel = 0,
         Parent = row,
     })
