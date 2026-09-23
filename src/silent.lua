@@ -1,7 +1,5 @@
 --[[
-    Flick · Silent Aim + Rage (insta-reload)
-    Direction-only silent · torso priority
-    Insta-reload: Misc.ReloadTime / AmmoCount on Fire data
+    Flick · Silent Aim + Insta Reload
 ]]
 
 local Silent = {}
@@ -24,7 +22,6 @@ Silent.Config = {
     FOVThickness = 1.5,
     Sticky       = true,
     HitChance    = 100,
-    -- rage
     InstaReload  = false,
 }
 
@@ -125,16 +122,94 @@ local function GetClosest()
     return best
 end
 
+-- scan character / backpack / tool for ammo-like values and refill
+local function RefillAmmoValues()
+    local filled = 0
+    local roots = {}
+    local char = LocalPlayer.Character
+    if char then table.insert(roots, char) end
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if bp then table.insert(roots, bp) end
+
+    local nameHints = {
+        "ammo", "mag", "clip", "round", "bullet", "shell", "chamber", "reserve"
+    }
+
+    for _, root in ipairs(roots) do
+        for _, inst in ipairs(root:GetDescendants()) do
+            if inst:IsA("IntValue") or inst:IsA("NumberValue") then
+                local ln = string.lower(inst.Name)
+                for _, h in ipairs(nameHints) do
+                    if ln:find(h, 1, true) then
+                        local maxV = nil
+                        local parent = inst.Parent
+                        if parent then
+                            for _, sib in ipairs(parent:GetChildren()) do
+                                if sib ~= inst and (sib:IsA("IntValue") or sib:IsA("NumberValue")) then
+                                    local sn = string.lower(sib.Name)
+                                    if sn:find("max") or sn:find("capacity") or sn:find("size") then
+                                        maxV = sib.Value
+                                        break
+                                    end
+                                end
+                            end
+                        end
+                        local target = maxV or (inst.Value < 1 and 1 or inst.Value)
+                        if maxV then target = maxV end
+                        if type(target) == "number" and target >= 0 then
+                            if maxV and inst.Value ~= maxV then
+                                inst.Value = maxV
+                                filled = filled + 1
+                            elseif not maxV and inst.Value == 0 then
+                                inst.Value = 1
+                                filled = filled + 1
+                            end
+                        end
+                        break
+                    end
+                end
+            end
+        end
+    end
+    return filled
+end
+
 local function ApplyInstaReload(data)
     if not Silent.Config.InstaReload then return end
-    if type(data.Misc) ~= "table" then return end
-    local max = data.Misc.MaxAmmo
-    if type(max) == "number" and max > 0 then
+
+    local okMisc = false
+    if type(data) == "table" and type(data.Misc) == "table" then
+        local max = data.Misc.MaxAmmo
+        if type(max) ~= "number" or max < 1 then max = 1 end
         data.Misc.AmmoCount = max
+        data.Misc.ReloadTime = 0
+        okMisc = true
     else
-        data.Misc.AmmoCount = 1
+        warn("[Rage] InstaReload: data.Misc missing on Fire")
     end
-    data.Misc.ReloadTime = 0
+
+    local n = 0
+    local ok, err = pcall(function()
+        n = RefillAmmoValues()
+    end)
+    if not ok then
+        warn("[Rage] InstaReload refill error: " .. tostring(err))
+    end
+
+    -- defer second pass (some guns update ammo after Fire returns)
+    task.defer(function()
+        if not Silent.Config.InstaReload then return end
+        local ok2, err2 = pcall(RefillAmmoValues)
+        if not ok2 then
+            warn("[Rage] InstaReload deferred error: " .. tostring(err2))
+        end
+    end)
+
+    if okMisc or n > 0 then
+        -- silent success; only warn on total failure
+    else
+        warn("[Rage] InstaReload: no Misc patch and no ammo values found")
+    end
 end
 
 local function FindBulletHandler()
@@ -182,7 +257,10 @@ function Silent.Init()
                     end
                 end
             end
-            ApplyInstaReload(data)
+            local ok, err = pcall(ApplyInstaReload, data)
+            if not ok then
+                warn("[Rage] ApplyInstaReload error: " .. tostring(err))
+            end
         end
         return oldFire(data)
     end
