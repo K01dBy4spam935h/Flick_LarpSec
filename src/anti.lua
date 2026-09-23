@@ -1,14 +1,14 @@
 --[[
-    Flick · Adonis Anti-Exploit Bypass (hard)
-    Continuous re-hook · Detected spoof · detector neuter · kick swallow
-    Designed for long sessions
+    Flick · Adonis full client disable
+    Neutralize Detected/Kill/Disconnect/detectors without breaking heartbeat
 ]]
 
 local Anti = {}
 
-local DetectedFunc, KillFunc, DisconnectFunc
+local DetectedFunc, KillFunc, DisconnectFunc, SendFunc
 local bypassed = false
 local kickAttempts = 0
+local infoHooked = false
 
 local function findClosures()
     for _, v in pairs(getgc(true)) do
@@ -16,29 +16,29 @@ local function findClosures()
             local det = rawget(v, "Detected")
             local kil = rawget(v, "Kill")
             local dis = rawget(v, "Disconnect")
+            local snd = rawget(v, "Send")
 
             if type(det) == "function" then
-                local isAdonis = false
+                local hit = false
                 pcall(function()
-                    local consts = debug.getconstants(det)
-                    for _, c in pairs(consts) do
-                        if type(c) == "string" and (c:find("On Xbox") or c:find("On mobile") or c:find("Adonis") or c:find("Tamper") or c:find("Anti") or c:find("0x")) then
-                            isAdonis = true
+                    for _, c in pairs(debug.getconstants(det)) do
+                        if type(c) == "string" and (c:find("On Xbox") or c:find("On mobile") or c:find("Adonis") or c:find("Tamper") or c:find("0x") or c:find("Anti")) then
+                            hit = true
                             break
                         end
                     end
                 end)
-                if isAdonis or type(kil) == "function" or rawget(v, "Variables") or rawget(v, "Process") then
+                if hit or type(kil) == "function" or rawget(v, "Variables") or rawget(v, "Process") then
                     DetectedFunc = det
                 end
             end
             if type(kil) == "function" then KillFunc = kil end
             if type(dis) == "function" then DisconnectFunc = dis end
+            if type(snd) == "function" then SendFunc = snd end
         end
     end
 end
 
-local infoHooked = false
 local function hookDetected()
     if not DetectedFunc then return false end
 
@@ -93,18 +93,13 @@ local function neuterDetectors()
             }) do
                 local entry = rawget(v, key)
                 if type(entry) == "table" and type(entry[2]) == "function" then
-                    pcall(function()
-                        rawset(entry, 2, function() return false end)
-                    end)
+                    pcall(function() rawset(entry, 2, function() return false end) end)
                 end
             end
-            -- also neuter common Adonis action tables
-            for _, key in ipairs({"Detectors", "Launch", "RLocked"}) do
+            for _, key in ipairs({"Detectors", "Launch", "RLocked", "Detected"}) do
                 local val = rawget(v, key)
-                if type(val) == "function" then
-                    pcall(function()
-                        rawset(v, key, function() return true end)
-                    end)
+                if type(val) == "function" and val ~= DetectedFunc then
+                    pcall(function() rawset(v, key, function() return true end) end)
                 end
             end
         end
@@ -126,29 +121,29 @@ local function protectKick()
     end)
 end
 
-local function verifyBypass()
-    local signals = 0
+local function verify()
+    local n = 0
     if DetectedFunc then
-        local ok, res = pcall(DetectedFunc, "kick", "test")
-        if ok and res == true then signals = signals + 1 end
+        local ok, res = pcall(DetectedFunc, "kick", "t")
+        if ok and res == true then n = n + 1 end
     end
     local detOk = true
     for _, v in pairs(getgc(true)) do
         if type(v) == "table" then
-            local entry = rawget(v, "indexInstance")
-            if type(entry) == "table" and type(entry[2]) == "function" then
-                local ok, res = pcall(entry[2])
+            local e = rawget(v, "indexInstance")
+            if type(e) == "table" and type(e[2]) == "function" then
+                local ok, res = pcall(e[2])
                 if not ok or res ~= false then detOk = false end
             end
         end
     end
-    if detOk then signals = signals + 1 end
+    if detOk then n = n + 1 end
     if KillFunc then
-        if pcall(KillFunc, "test") then signals = signals + 1 end
+        if pcall(KillFunc, "t") then n = n + 1 end
     else
-        signals = signals + 1
+        n = n + 1
     end
-    return signals >= 2
+    return n >= 2
 end
 
 function Anti.Init()
@@ -158,12 +153,12 @@ function Anti.Init()
     neuterDetectors()
     protectKick()
 
-    task.delay(2.5, function()
+    task.delay(2.2, function()
         findClosures()
         hookDetected()
         hookKillDisconnect()
         neuterDetectors()
-        bypassed = verifyBypass()
+        bypassed = verify()
         if bypassed then
             print("Adonis Anti-Exploit Bypassed successfully")
         else
@@ -171,10 +166,9 @@ function Anti.Init()
         end
     end)
 
-    -- aggressive long-session watchdog
     task.spawn(function()
         while true do
-            task.wait(4)
+            task.wait(3.5)
             findClosures()
             pcall(hookDetected)
             neuterDetectors()
