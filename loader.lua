@@ -13,9 +13,10 @@ local function fetch(name)
     return loadstring(game:HttpGet(BASE .. name))()
 end
 
+-- anti first
 local Anti = fetch("anti.lua")
 Anti.Init()
-task.wait(0.3)
+task.wait(0.25)
 
 local Silent = fetch("silent.lua")
 local ESP    = fetch("esp.lua")
@@ -23,7 +24,7 @@ local Perf   = fetch("perf.lua")
 local UI     = fetch("ui.lua")
 
 task.spawn(function()
-    task.wait(1.0)
+    task.wait(0.9)
     Silent.Init()
 end)
 ESP.Init()
