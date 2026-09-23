@@ -54,16 +54,8 @@ function UI.Init(Silent, ESP, Anti, Perf)
         Default = Silent.Config.MagicBullet,
         Callback = function(v) Silent.Config.MagicBullet = v end,
     })
-    GBMagic:AddSlider({
-        Text = "Max Steps",
-        Min = 1, Max = 16, Default = Silent.Config.MagicSteps or 10,
-        Callback = function(v) Silent.Config.MagicSteps = v end,
-    })
-    GBMagic:AddSlider({
-        Text = "Surface Pad",
-        Min = 1, Max = 50, Default = math.floor((Silent.Config.MagicPad or 0.2) * 100),
-        Callback = function(v) Silent.Config.MagicPad = v / 100 end,
-    })
+    GBMagic:AddLabel("Spoofs hit reports · Origin real")
+    GBMagic:AddLabel("Needs client hit remote to damage")
 
     GBTarget:AddSection("Priority")
     GBTarget:AddDropdown({
