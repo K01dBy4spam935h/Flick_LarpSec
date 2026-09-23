@@ -416,6 +416,34 @@ function Tab:CreateGroupbox(title, side)
 end
 
 -- ─── Groupbox elements ───────────────────────────────────────
+function Groupbox:AddSection(text)
+    local row = Create("Frame", {
+        Size = UDim2.new(1, 0, 0, 22),
+        BackgroundTransparency = 1,
+        Parent = self.Body,
+    })
+    Create("TextLabel", {
+        Size = UDim2.new(1, -4, 0, 14),
+        Position = UDim2.fromOffset(2, 0),
+        BackgroundTransparency = 1,
+        Text = text,
+        TextColor3 = Theme.Text,
+        TextSize = 12,
+        Font = Enum.Font.Code,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = row,
+    })
+    Create("Frame", {
+        Size = UDim2.new(1, -4, 0, 1),
+        Position = UDim2.fromOffset(2, 16),
+        BackgroundColor3 = Theme.Border,
+        BorderSizePixel = 0,
+        Parent = row,
+    })
+    self.Resize()
+    return row
+end
+
 function Groupbox:AddLabel(text)
     local row = Create("Frame", {
         Size = UDim2.new(1, 0, 0, 18),
