@@ -1,6 +1,12 @@
 --[[
-    Flick · Silent Aim
-    Torso primary · any body part fallback · sticky · hit chance
+    Flick · Silent Aim + Magic Bullet
+    Architecture (mapped):
+      ReplicatedStorage.ModuleScripts.GunModules.BulletHandler.Fire(data)
+      data.Origin  = Vector3  (shot start — client trusted for cast start)
+      data.Direction = Vector3 unit (shot direction)
+    Silent: rewrite Direction toward torso (then any part)
+    Magic: move Origin to just in front of target along the shot line
+            so the cast never intersects intervening world geometry first
 ]]
 
 local Silent = {}
@@ -23,6 +29,8 @@ Silent.Config = {
     FOVThickness = 1.5,
     Sticky       = true,
     HitChance    = 100,
+    MagicBullet  = false,
+    MagicOffset  = 1.25, -- studs in front of target along incoming dir
 }
 
 local FOVCircle = Drawing.new("Circle")
@@ -58,7 +66,6 @@ local function Visible(part)
     return hit == nil or hit.Instance:IsDescendantOf(part.Parent)
 end
 
--- priority order: torso first when PreferTorso, else configured part, then full body
 local function CandidateParts(char)
     local list = {}
     if Silent.Config.PreferTorso then
@@ -156,8 +163,25 @@ function Silent.Init()
             if math.random(1, 100) <= Silent.Config.HitChance then
                 local target = GetClosest()
                 if target then
-                    local origin = data.Origin or Camera.CFrame.Position
-                    data.Direction = (target.Position - origin).Unit
+                    local realOrigin = data.Origin or Camera.CFrame.Position
+                    local aimPos = target.Position
+                    local dir = (aimPos - realOrigin)
+                    local mag = dir.Magnitude
+                    if mag > 0.001 then
+                        dir = dir.Unit
+                    else
+                        dir = Camera.CFrame.LookVector
+                    end
+
+                    if Silent.Config.MagicBullet then
+                        -- start the cast just in front of the target (past walls)
+                        -- keeps Direction valid and Origin close to target so wall geometry is skipped
+                        local offset = Silent.Config.MagicOffset or 1.25
+                        data.Origin = aimPos - dir * offset
+                        data.Direction = dir
+                    else
+                        data.Direction = dir
+                    end
                 end
             end
         end
