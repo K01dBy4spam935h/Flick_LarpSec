@@ -1,5 +1,5 @@
 --[[
-    Flick · UI (Linoria library)
+    Flick · UI
 ]]
 
 local UI = {}
@@ -24,7 +24,6 @@ function UI.Init(Silent, ESP, Anti, Perf)
     local GBSilent = TabCombat:CreateGroupbox("Silent Aim", "Left")
     local GBTarget = TabCombat:CreateGroupbox("Targeting", "Right")
 
-    GBSilent:AddSection("Core")
     GBSilent:AddToggle({
         Text = "Enabled",
         Default = Silent.Config.Enabled,
@@ -47,7 +46,6 @@ function UI.Init(Silent, ESP, Anti, Perf)
         Callback = function(v) Silent.Config.ShowFOV = v end,
     })
 
-    GBTarget:AddSection("Priority")
     GBTarget:AddDropdown({
         Text = "Hit Part",
         Values = {"Torso", "Head", "HumanoidRootPart", "UpperTorso"},
@@ -76,33 +74,24 @@ function UI.Init(Silent, ESP, Anti, Perf)
     -- ── Rage ────────────────────────────────────────────────
     local TabRage = Window:CreateTab("Rage")
     local GBRage = TabRage:CreateGroupbox("Gun", "Left")
-    local GBRageNote = TabRage:CreateGroupbox("Note", "Right")
 
-    GBRage:AddSection("Reload")
     GBRage:AddToggle({
         Text = "Insta Reload",
         Default = Silent.Config.InstaReload,
         Callback = function(v) Silent.Config.InstaReload = v end,
     })
 
-    GBRageNote:AddSection("Info")
-    GBRageNote:AddLabel("Sets ReloadTime = 0")
-    GBRageNote:AddLabel("Restores AmmoCount on Fire")
-    GBRageNote:AddLabel("From Misc fields on shot data")
-
     -- ── Visuals ─────────────────────────────────────────────
     local TabVisuals = Window:CreateTab("Visuals")
     local GBPerf = TabVisuals:CreateGroupbox("Performance", "Left")
     local GBOverlay = TabVisuals:CreateGroupbox("Overlay", "Right")
 
-    GBPerf:AddSection("Graphics")
     GBPerf:AddToggle({
         Text = "Performance Mode",
         Default = Perf.Config.Enabled,
         Callback = function(v) Perf.SetEnabled(v) end,
     })
 
-    GBOverlay:AddSection("Counter")
     GBOverlay:AddToggle({
         Text = "FPS / Ping Counter",
         Default = Perf.Config.ShowFPS,
@@ -114,7 +103,6 @@ function UI.Init(Silent, ESP, Anti, Perf)
     local GBESP = TabESP:CreateGroupbox("ESP", "Left")
     local GBStyle = TabESP:CreateGroupbox("Style", "Right")
 
-    GBESP:AddSection("Elements")
     GBESP:AddToggle({
         Text = "Enabled",
         Default = ESP.Config.Enabled,
@@ -141,7 +129,6 @@ function UI.Init(Silent, ESP, Anti, Perf)
         Callback = function(v) ESP.Config.Tracers = v end,
     })
 
-    GBStyle:AddSection("Appearance")
     GBStyle:AddDropdown({
         Text = "Tracer Origin",
         Values = {"Bottom", "Center", "Mouse"},
@@ -178,9 +165,9 @@ function UI.Init(Silent, ESP, Anti, Perf)
     local TabInfo = Window:CreateTab("Info")
     local GBAdonis = TabInfo:CreateGroupbox("Adonis Bypass", "Left")
     local GBArch = TabInfo:CreateGroupbox("Architecture", "Right")
-    local GBCtrl = TabInfo:CreateGroupbox("Controls", "Left")
+    local GBRageInfo = TabInfo:CreateGroupbox("Rage", "Left")
+    local GBCtrl = TabInfo:CreateGroupbox("Controls", "Right")
 
-    GBAdonis:AddSection("Hooks")
     GBAdonis:AddLabel("Detected → true")
     GBAdonis:AddLabel("Kill / Disconnect → no-op")
     GBAdonis:AddLabel("indexInstance → false")
@@ -188,15 +175,14 @@ function UI.Init(Silent, ESP, Anti, Perf)
     GBAdonis:AddLabel("Kick swallow · heartbeat ok")
     GBAdonis:AddLabel("Watchdog 3.5s")
 
-    GBArch:AddSection("Gun")
     GBArch:AddLabel("BulletHandler.Fire(data)")
     GBArch:AddLabel("Origin locked ~1.7 studs")
-    GBArch:AddSection("Silent")
-    GBArch:AddLabel("Direction → torso priority")
-    GBArch:AddSection("Rage")
-    GBArch:AddLabel("Misc.ReloadTime / AmmoCount")
+    GBArch:AddLabel("Silent: Direction → torso")
 
-    GBCtrl:AddSection("Keys")
+    GBRageInfo:AddLabel("Insta Reload patches Misc")
+    GBRageInfo:AddLabel("and scans ammo IntValues")
+    GBRageInfo:AddLabel("Warns in output on failure")
+
     GBCtrl:AddLabel("RightShift · menu")
     GBCtrl:AddLabel("Title bar · drag")
 
