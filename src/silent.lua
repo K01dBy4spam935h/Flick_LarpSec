@@ -1,6 +1,6 @@
 --[[
-    Flick · Silent + Insta Reload v8
-    Rebind on tool equip · quiet · no spam
+    Flick · Silent + NoReload
+    NoReload: zero reloadTime on the live gun-shaped config table (not GF.new shell)
 ]]
 
 local Silent = {}
@@ -23,7 +23,7 @@ Silent.Config = {
     FOVThickness = 1.5,
     Sticky       = true,
     HitChance    = 100,
-    InstaReload  = false,
+    NoReload     = false,
 }
 
 local FOVCircle = Drawing.new("Circle")
@@ -35,8 +35,7 @@ FOVCircle.Visible   = false
 FOVCircle.ZIndex    = 2
 
 local stickyTarget = nil
-local controller = nil
-local hookedNew = false
+local reloadTable = nil -- FRESH gun-shaped table (Ammo + reloadTime), NOT GF.new return
 local lastScan = 0
 
 local function GetChar(plr) return plr and plr.Character end
@@ -123,7 +122,7 @@ local function GetClosest()
     return best
 end
 
-local function IsGunController(t)
+local function IsReloadTable(t)
     if type(t) ~= "table" then return false end
     local ok, res = pcall(function()
         return type(rawget(t, "Ammo")) == "number" and type(rawget(t, "reloadTime")) == "number"
@@ -131,103 +130,86 @@ local function IsGunController(t)
     return ok and res
 end
 
-local function Patch(obj)
-    obj = obj or controller
-    if not obj or not IsGunController(obj) then return end
-    pcall(function()
-        local maxAmmo = rawget(obj, "MaxAmmo")
-        if type(maxAmmo) ~= "number" or maxAmmo < 1 then maxAmmo = 1 end
-        rawset(obj, "Ammo", maxAmmo)
-        rawset(obj, "reloadTime", 0)
-        if type(rawget(obj, "Reloading")) == "boolean" then rawset(obj, "Reloading", false) end
-        if type(rawget(obj, "CanFire")) == "boolean" then rawset(obj, "CanFire", true) end
-        if type(rawget(obj, "CanReload")) == "boolean" then rawset(obj, "CanReload", true) end
-    end)
-end
-
-local function Scan()
+local function FindReloadTable()
     local now = tick()
-    if now - lastScan < 0.5 then return controller ~= nil end
+    if now - lastScan < 0.35 and reloadTable and IsReloadTable(reloadTable) then
+        return reloadTable
+    end
     lastScan = now
 
     local found = nil
     pcall(function()
         for _, obj in ipairs(getgc(true)) do
-            if IsGunController(obj) then
-                found = obj
+            if IsReloadTable(obj) then
+                found = obj -- last match; usually the live one
             end
         end
     end)
     if found then
-        controller = found
-        return true
+        reloadTable = found
     end
-    return false
+    return reloadTable
 end
 
-local function HookNew()
-    if hookedNew then return end
-    local ok, GF = pcall(function()
-        return require(ReplicatedStorage.ModuleScripts.GunModules.GunFramework)
-    end)
-    if not ok or type(GF) ~= "table" or type(GF.new) ~= "function" then return end
-
-    local old = GF.new
-    GF.new = function(...)
-        local obj = old(...)
-        if type(obj) == "table" and IsGunController(obj) then
-            controller = obj
-            if Silent.Config.InstaReload then
-                Patch(obj)
-            end
-        elseif type(obj) == "table" then
-            -- still track if it has Ammo after a tick (constructed async)
-            task.defer(function()
-                if IsGunController(obj) then
-                    controller = obj
-                    if Silent.Config.InstaReload then Patch(obj) end
-                end
-            end)
-        end
-        return obj
+local function ApplyNoReload()
+    if not Silent.Config.NoReload then return end
+    local t = reloadTable
+    if not t or not IsReloadTable(t) then
+        t = FindReloadTable()
     end
-    hookedNew = true
+    if not t then return end
+    pcall(function()
+        rawset(t, "reloadTime", 0)
+        if type(rawget(t, "ReloadTime")) == "number" then
+            rawset(t, "ReloadTime", 0)
+        end
+        local maxAmmo = rawget(t, "MaxAmmo")
+        if type(maxAmmo) ~= "number" or maxAmmo < 1 then maxAmmo = 1 end
+        if type(rawget(t, "Ammo")) == "number" then
+            rawset(t, "Ammo", maxAmmo)
+        end
+    end)
+end
+
+local function OnTool(tool)
+    if not tool or not tool:IsA("Tool") then return end
+    task.defer(function()
+        task.wait(0.12)
+        reloadTable = nil
+        lastScan = 0
+        FindReloadTable()
+        ApplyNoReload()
+    end)
 end
 
 local function WatchCharacter(char)
     if not char then return end
-    controller = nil
-
-    local function onTool(tool)
-        if not tool:IsA("Tool") then return end
-        task.defer(function()
-            task.wait(0.15)
-            Scan()
-            if controller and Silent.Config.InstaReload then
-                Patch()
-            end
-        end)
-        tool.Equipped:Connect(function()
-            task.defer(function()
-                task.wait(0.1)
-                Scan()
-                if controller and Silent.Config.InstaReload then Patch() end
-            end)
-        end)
-    end
+    reloadTable = nil
+    lastScan = 0
 
     for _, ch in ipairs(char:GetChildren()) do
-        onTool(ch)
+        OnTool(ch)
     end
-    char.ChildAdded:Connect(onTool)
+    char.ChildAdded:Connect(OnTool)
 
     local bp = LocalPlayer:FindFirstChild("Backpack")
     if bp then
         for _, ch in ipairs(bp:GetChildren()) do
-            onTool(ch)
+            OnTool(ch)
         end
-        bp.ChildAdded:Connect(onTool)
+        bp.ChildAdded:Connect(OnTool)
     end
+
+    -- auto-equip gun on spawn: a few delayed finds
+    task.spawn(function()
+        for _ = 1, 12 do
+            task.wait(0.25)
+            if FindReloadTable() then
+                ApplyNoReload()
+                break
+            end
+        end
+    end)
 end
 
 local function FindBulletHandler()
@@ -251,34 +233,23 @@ function Silent.Init()
         return false
     end
 
-    HookNew()
-
     if LocalPlayer.Character then
         WatchCharacter(LocalPlayer.Character)
-        task.defer(Scan)
     end
-    LocalPlayer.CharacterAdded:Connect(function(char)
-        WatchCharacter(char)
-        task.defer(function()
-            task.wait(0.3)
-            Scan()
-        end)
-    end)
+    LocalPlayer.CharacterAdded:Connect(WatchCharacter)
 
     local oldFire = BH.Fire
     BH.Fire = function(data)
         if type(data) == "table" then
-            if Silent.Config.InstaReload then
-                if not controller or not IsGunController(controller) then
-                    Scan()
-                end
+            if Silent.Config.NoReload then
+                ApplyNoReload()
                 if type(data.Misc) == "table" then
-                    local max = data.Misc.MaxAmmo
-                    if type(max) ~= "number" or max < 1 then max = 1 end
-                    data.Misc.AmmoCount = max
                     data.Misc.ReloadTime = 0
+                    local max = data.Misc.MaxAmmo
+                    if type(max) == "number" and max >= 1 then
+                        data.Misc.AmmoCount = max
+                    end
                 end
-                Patch()
             end
 
             if Silent.Config.Enabled and math.random(1, 100) <= Silent.Config.HitChance then
@@ -299,17 +270,23 @@ function Silent.Init()
 
             local result = oldFire(data)
 
-            if Silent.Config.InstaReload then
-                Patch()
-                task.defer(Patch)
-                task.delay(0.05, Patch)
-                task.delay(0.15, Patch)
-                task.delay(0.35, Patch)
+            if Silent.Config.NoReload then
+                ApplyNoReload()
+                task.defer(ApplyNoReload)
+                task.delay(0.05, ApplyNoReload)
+                task.delay(0.2, ApplyNoReload)
             end
             return result
         end
         return oldFire(data)
     end
+
+    -- keep reloadTime collapsed while enabled (cheap: one table)
+    RunService.Heartbeat:Connect(function()
+        if Silent.Config.NoReload then
+            ApplyNoReload()
+        end
+    end)
 
     RunService.RenderStepped:Connect(function()
         if Silent.Config.Enabled and Silent.Config.ShowFOV then
