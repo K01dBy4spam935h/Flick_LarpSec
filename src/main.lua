@@ -1,27 +1,29 @@
 --[[
-    Flick Silent Aim + ESP + Anti-Adonis
-    Entry point · load order is critical
+    LarpSec - Flick v1
+    Entry · anti first
 ]]
 
--- 1. Anti first (must run before anything Adonis can flag)
-local Anti = loadstring(game:HttpGet("https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/src/anti.lua"))()
+local BASE = "https://raw.githubusercontent.com/K01dBy4spam935h/Flick_LarpSec/main/src/"
+
+local function load(path)
+    return loadstring(game:HttpGet(BASE .. path))()
+end
+
+local Anti = load("anti.lua")
 Anti.Init()
+task.wait(0.35)
 
--- small delay so first neuter settles
-task.wait(0.4)
+local Silent = load("silent.lua")
+local ESP    = load("esp.lua")
+local Perf   = load("perf.lua")
+local UI     = load("ui.lua")
 
--- 2. Feature modules
-local Silent = loadstring(game:HttpGet("https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/src/silent.lua"))()
-local ESP    = loadstring(game:HttpGet("https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/src/esp.lua"))()
-local UI     = loadstring(game:HttpGet("https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/src/ui.lua"))()
+Perf.Init()
+ESP.Init()
 
--- 3. Init features
 task.spawn(function()
-    task.wait(1.2) -- let gun modules exist
+    task.wait(1.0)
     Silent.Init()
 end)
 
-ESP.Init()
-UI.Init(Silent, ESP)
-
-print("[Flick] full stack loaded · anti + silent + esp + ui")
+UI.Init(Silent, ESP, Anti, Perf)
