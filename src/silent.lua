@@ -24,6 +24,8 @@ Silent.Config = {
     Sticky       = true,
     HitChance    = 100,
     NoReload     = false,
+    Triggerbot   = false,
+    AutoShoot    = false,
 }
 
 local FOVCircle = Drawing.new("Circle")
@@ -226,6 +228,57 @@ local function FindBulletHandler()
     return nil
 end
 
+
+local function SimulateClick()
+    pcall(function()
+        if mouse1press and mouse1release then
+            mouse1press()
+            task.delay(0.02, mouse1release)
+            return
+        end
+    end)
+    pcall(function()
+        local vim = game:GetService("VirtualInputManager")
+        vim:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+        task.delay(0.02, function()
+            vim:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+        end)
+    end)
+end
+
+local function TargetOnCrosshair()
+    local mouse = UserInputService:GetMouseLocation()
+    local best, bestDist = nil, 6 -- px radius for trigger
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr == LocalPlayer or not Alive(plr) then continue end
+        local char = GetChar(plr)
+        for _, part in ipairs(CandidateParts(char)) do
+            if Silent.Config.VisibleCheck and not Visible(part) then continue end
+            local sp, on = Camera:WorldToViewportPoint(part.Position)
+            if not on then continue end
+            local d = (Vector2.new(sp.X, sp.Y) - mouse).Magnitude
+            if d < bestDist then
+                bestDist = d
+                best = part
+            end
+        end
+    end
+    return best
+end
+
+local function TargetInFOVVisible()
+    if not Silent.Config.Enabled and not Silent.Config.AutoShoot then
+        -- still allow FOV scan for autoshoot
+    end
+    local best = GetClosest()
+    if not best then return nil end
+    if Silent.Config.VisibleCheck or true then
+        -- autoshoot requires visible
+        if not Visible(best) then return nil end
+    end
+    return best
+end
+
 function Silent.Init()
     local BH = FindBulletHandler()
     if not BH then
@@ -296,6 +349,26 @@ function Silent.Init()
             FOVCircle.Visible  = true
         else
             FOVCircle.Visible = false
+        end
+    end)
+
+
+    local lastTrig = 0
+    local lastAuto = 0
+    RunService.RenderStepped:Connect(function()
+        if Silent.Config.Triggerbot then
+            local t = TargetOnCrosshair()
+            if t and (tick() - lastTrig) > 0.03 then
+                lastTrig = tick()
+                SimulateClick()
+            end
+        end
+        if Silent.Config.AutoShoot then
+            local t = GetClosest()
+            if t and Visible(t) and (tick() - lastAuto) > 0.05 then
+                lastAuto = tick()
+                SimulateClick()
+            end
         end
     end)
 
