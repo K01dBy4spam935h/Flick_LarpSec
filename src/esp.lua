@@ -1,5 +1,5 @@
 --[[
-    Flick · ESP + Radar + Arrows + Chams
+    LarpSec · ESP + Radar + Arrows + Chams (Highlight)
 ]]
 
 local Players          = game:GetService("Players")
@@ -12,31 +12,57 @@ local CoreGui          = game:GetService("CoreGui")
 local ESP = {}
 
 ESP.Config = {
-    Enabled   = true,
-    Boxes     = true,
-    Names     = true,
-    Distance  = true,
-    Tracers   = false,
-    TracerFrom= "Bottom",
+    Enabled     = true,
+    Boxes       = true,
+    Names       = true,
+    Distance    = true,
+    Tracers     = false,
+    TracerFrom  = "Bottom",
     MaxDistance = 800,
-    Color     = Color3.fromRGB(74, 144, 226),
-    Chams     = false,
-    ChamsColor= Color3.fromRGB(74, 144, 226),
-    ChamsFill = 0.55,
-    Radar     = false,
-    RadarSize = 140,
-    Arrows    = false,
+    Color       = Color3.fromRGB(74, 144, 226), -- boxes/tracers
+    NameColor   = Color3.fromRGB(255, 255, 255),
+    DistColor   = Color3.fromRGB(200, 200, 210),
+    Chams       = false,
+    ChamsColor  = Color3.fromRGB(74, 144, 226),
+    ChamsFill   = 0.45,
+    ChamsOutline= true,
+    Radar       = false,
+    RadarSize   = 140,
+    Arrows      = false,
+    Font        = "UI", -- Drawing font: UI, System, Plex, Monospace
+    NameOrigin  = "Username", -- Username | DisplayName
+    ColorMode   = "Static", -- Static | Rainbow
+    RainbowSpeed= 0.15,
 }
 
-local drawings = {} -- [player] = { box, name, dist, tracer, arrow }
-local chamsFolder
-local radarGui, radarFrame, radarCenter
-local radarDots = {} -- [player] = frame
+local drawings = {}
+local chamsMap = {} -- [player] = Highlight
+local radarGui, radarFrame
+local radarDots = {}
+
+local FONT_MAP = {
+    UI = 0,
+    System = 1,
+    Plex = 2,
+    Monospace = 3,
+}
 
 local function getChar(p) return p and p.Character end
 local function getHum(c) return c and c:FindFirstChildOfClass("Humanoid") end
 local function getRoot(c)
     return c and (c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("UpperTorso") or c:FindFirstChild("Torso"))
+end
+
+local function rainbowColor()
+    local h = (tick() * ESP.Config.RainbowSpeed) % 1
+    return Color3.fromHSV(h, 0.9, 1)
+end
+
+local function activeColor(base)
+    if ESP.Config.ColorMode == "Rainbow" then
+        return rainbowColor()
+    end
+    return base
 end
 
 local function ensureDraw(plr)
@@ -62,6 +88,7 @@ local function ensureDraw(plr)
     t.tracer.Thickness = 1
     t.tracer.Visible = false
     t.arrow.Filled = true
+    t.arrow.Thickness = 1
     t.arrow.Visible = false
     drawings[plr] = t
     return t
@@ -77,9 +104,11 @@ local function hideDraw(t)
 end
 
 local function clearChams(plr)
-    if not chamsFolder then return end
-    local f = chamsFolder:FindFirstChild(plr.Name)
-    if f then f:Destroy() end
+    local h = chamsMap[plr]
+    if h then
+        pcall(function() h:Destroy() end)
+        chamsMap[plr] = nil
+    end
 end
 
 local function applyChams(plr)
@@ -88,41 +117,29 @@ local function applyChams(plr)
         return
     end
     local char = getChar(plr)
-    if not char then return end
-    if not chamsFolder then
-        local gui = Instance.new("Folder")
-        gui.Name = "LarpSecChams"
-        gui.Parent = workspace
-        chamsFolder = gui
+    if not char then clearChams(plr) return end
+
+    local hl = chamsMap[plr]
+    if not hl or not hl.Parent then
+        clearChams(plr)
+        hl = Instance.new("Highlight")
+        hl.Name = "LarpSecChams"
+        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        hl.FillTransparency = ESP.Config.ChamsFill
+        hl.OutlineTransparency = ESP.Config.ChamsOutline and 0 or 1
+        hl.Parent = char
+        chamsMap[plr] = hl
     end
-    local folder = chamsFolder:FindFirstChild(plr.Name)
-    if not folder then
-        folder = Instance.new("Folder")
-        folder.Name = plr.Name
-        folder.Parent = chamsFolder
-    end
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-            local hl = folder:FindFirstChild(part.Name)
-            if not hl then
-                local box = Instance.new("BoxHandleAdornment")
-                box.Name = part.Name
-                box.Adornee = part
-                box.AlwaysOnTop = true
-                box.ZIndex = 5
-                box.Size = part.Size
-                box.Parent = folder
-                hl = box
-            end
-            if hl:IsA("BoxHandleAdornment") then
-                hl.Adornee = part
-                hl.Size = part.Size
-                hl.Color3 = ESP.Config.ChamsColor
-                hl.Transparency = ESP.Config.ChamsFill
-                hl.Visible = true
-            end
-        end
-    end
+    hl.Adornee = char
+    local c = activeColor(ESP.Config.ChamsColor)
+    hl.FillColor = c
+    hl.OutlineColor = Color3.new(
+        math.min(1, c.R + 0.25),
+        math.min(1, c.G + 0.25),
+        math.min(1, c.B + 0.25)
+    )
+    hl.FillTransparency = ESP.Config.ChamsFill
+    hl.OutlineTransparency = ESP.Config.ChamsOutline and 0 or 1
 end
 
 local function ensureRadar()
@@ -158,7 +175,6 @@ local function ensureRadar()
     center.BorderSizePixel = 0
     center.Parent = frame
     Instance.new("UICorner", center).CornerRadius = UDim.new(1, 0)
-    radarCenter = center
 
     local dragging, dragStart, startPos
     frame.InputBegan:Connect(function(i)
@@ -183,17 +199,12 @@ local function updateRadar()
     ensureRadar()
     radarGui.Enabled = ESP.Config.Radar
     if not ESP.Config.Radar then return end
-    local myChar = LocalPlayer.Character
-    local myRoot = getRoot(myChar)
-    if not myRoot then return end
-    local yaw = 0
-    if Camera then
-        local look = Camera.CFrame.LookVector
-        yaw = math.atan2(look.X, look.Z)
-    end
+    local myRoot = getRoot(LocalPlayer.Character)
+    if not myRoot or not Camera then return end
+    local look = Camera.CFrame.LookVector
+    local yaw = math.atan2(look.X, look.Z)
     local range = 200
     local half = ESP.Config.RadarSize / 2
-
     local seen = {}
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr == LocalPlayer then continue end
@@ -206,7 +217,7 @@ local function updateRadar()
         local rz = rel.X * math.sin(yaw) + rel.Z * math.cos(yaw)
         local nx = (rx / range) * (half - 6)
         local ny = (-rz / range) * (half - 6)
-        local dist = math.sqrt(nx*nx + ny*ny)
+        local dist = math.sqrt(nx * nx + ny * ny)
         if dist > half - 6 then
             local s = (half - 6) / dist
             nx, ny = nx * s, ny * s
@@ -226,13 +237,11 @@ local function updateRadar()
         dot.Visible = true
     end
     for plr, dot in pairs(radarDots) do
-        if not seen[plr] then
-            dot.Visible = false
-        end
+        if not seen[plr] then dot.Visible = false end
     end
 end
 
-local function arrowFor(plr, t, root)
+local function arrowFor(plr, t, root, col)
     if not ESP.Config.Arrows then
         t.arrow.Visible = false
         return
@@ -252,19 +261,19 @@ local function arrowFor(plr, t, root)
     local pos = Vector2.new(cx, cy) + dir * radius
     local ang = math.atan2(dir.Y, dir.X)
     local size = 8
-    local p1 = pos
-    local p2 = pos + Vector2.new(math.cos(ang + 2.5), math.sin(ang + 2.5)) * size
-    local p3 = pos + Vector2.new(math.cos(ang - 2.5), math.sin(ang - 2.5)) * size
-    t.arrow.PointA = p1
-    t.arrow.PointB = p2
-    t.arrow.PointC = p3
-    t.arrow.Color = ESP.Config.Color
+    t.arrow.PointA = pos
+    t.arrow.PointB = pos + Vector2.new(math.cos(ang + 2.5), math.sin(ang + 2.5)) * size
+    t.arrow.PointC = pos + Vector2.new(math.cos(ang - 2.5), math.sin(ang - 2.5)) * size
+    t.arrow.Color = col
     t.arrow.Visible = true
 end
 
 function ESP.Init()
     RunService.RenderStepped:Connect(function()
         if ESP.Config.Radar then updateRadar() elseif radarGui then radarGui.Enabled = false end
+
+        local fontId = FONT_MAP[ESP.Config.Font] or 0
+        local boxCol = activeColor(ESP.Config.Color)
 
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr == LocalPlayer then continue end
@@ -295,21 +304,25 @@ function ESP.Init()
             local botS = Camera:WorldToViewportPoint(bottom)
             local h = math.abs(topS.Y - botS.Y)
             local w = h * 0.6
-            local col = ESP.Config.Color
 
             if ESP.Config.Boxes and on and sp.Z > 0 then
                 t.box.Size = Vector2.new(w, h)
-                t.box.Position = Vector2.new(sp.X - w/2, sp.Y - h/2)
-                t.box.Color = col
+                t.box.Position = Vector2.new(sp.X - w / 2, sp.Y - h / 2)
+                t.box.Color = boxCol
                 t.box.Visible = true
             else
                 t.box.Visible = false
             end
 
             if ESP.Config.Names and on and sp.Z > 0 then
-                t.name.Text = plr.Name
-                t.name.Position = Vector2.new(sp.X, sp.Y - h/2 - 14)
-                t.name.Color = col
+                local label = plr.Name
+                if ESP.Config.NameOrigin == "DisplayName" then
+                    label = plr.DisplayName or plr.Name
+                end
+                t.name.Text = label
+                t.name.Position = Vector2.new(sp.X, sp.Y - h / 2 - 14)
+                t.name.Color = activeColor(ESP.Config.NameColor)
+                pcall(function() t.name.Font = fontId end)
                 t.name.Visible = true
             else
                 t.name.Visible = false
@@ -317,29 +330,30 @@ function ESP.Init()
 
             if ESP.Config.Distance and on and sp.Z > 0 then
                 t.dist.Text = string.format("%dm", math.floor(dist))
-                t.dist.Position = Vector2.new(sp.X, sp.Y + h/2 + 2)
-                t.dist.Color = col
+                t.dist.Position = Vector2.new(sp.X, sp.Y + h / 2 + 2)
+                t.dist.Color = activeColor(ESP.Config.DistColor)
+                pcall(function() t.dist.Font = fontId end)
                 t.dist.Visible = true
             else
                 t.dist.Visible = false
             end
 
             if ESP.Config.Tracers and on and sp.Z > 0 then
-                local from = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y)
+                local from = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
                 if ESP.Config.TracerFrom == "Center" then
-                    from = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+                    from = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
                 elseif ESP.Config.TracerFrom == "Mouse" then
                     from = UserInputService:GetMouseLocation()
                 end
                 t.tracer.From = from
                 t.tracer.To = Vector2.new(sp.X, sp.Y)
-                t.tracer.Color = col
+                t.tracer.Color = boxCol
                 t.tracer.Visible = true
             else
                 t.tracer.Visible = false
             end
 
-            arrowFor(plr, t, root)
+            arrowFor(plr, t, root, boxCol)
         end
     end)
 
