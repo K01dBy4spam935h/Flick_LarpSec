@@ -1,12 +1,10 @@
 --[[
     Flick · probe.lua — official debug
-    Reload / controller / respawn diagnostics
-    No permanent combat hooks. Safe Fire wrap only for data dump.
+    Focus: reload timer ownership (tables vs upvalues vs Misc)
 ]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 local function log(...)
@@ -25,33 +23,10 @@ local function safeType(v)
         return "table(" .. n .. ")"
     elseif t == "Instance" then
         return "Instance:" .. v.ClassName .. ":" .. v.Name
-    elseif t == "Vector3" then
-        return string.format("Vector3(%.1f,%.1f,%.1f)", v.X, v.Y, v.Z)
-    elseif t == "boolean" or t == "number" or t == "string" then
+    elseif t == "number" or t == "boolean" or t == "string" then
         return t .. ":" .. tostring(v)
     end
     return t
-end
-
-local function dumpKeys(t, limit)
-    limit = limit or 40
-    local keys = {}
-    local n = 0
-    pcall(function()
-        for k, v in pairs(t) do
-            n = n + 1
-            if n <= limit then
-                table.insert(keys, tostring(k) .. "=" .. safeType(v))
-            end
-        end
-    end)
-    table.sort(keys)
-    return keys, n
-end
-
--- ── identity helpers ────────────────────────────────────────
-local function tableId(t)
-    return tostring(t) -- e.g. table: 0x...
 end
 
 local function isGunShape(t)
@@ -62,40 +37,10 @@ local function isGunShape(t)
     return ok and res
 end
 
-local function scoreGun(t)
-    -- higher = more likely live gun controller
-    local s = 0
-    pcall(function()
-        if type(rawget(t, "Ammo")) == "number" then s = s + 2 end
-        if type(rawget(t, "reloadTime")) == "number" then s = s + 2 end
-        if rawget(t, "CanReload") ~= nil then s = s + 1 end
-        if rawget(t, "CanFire") ~= nil then s = s + 1 end
-        if rawget(t, "MaxAmmo") ~= nil then s = s + 1 end
-        if rawget(t, "Reloading") ~= nil then s = s + 1 end
-        if type(rawget(t, "Ammo")) == "number" and rawget(t, "Ammo") > 0 then s = s + 1 end
-    end)
-    return s
+local function tableId(t)
+    return tostring(t)
 end
 
--- ── 1. module resolve ───────────────────────────────────────
-sep("MODULES")
-local BH, GF
-pcall(function()
-    BH = require(ReplicatedStorage.ModuleScripts.GunModules.BulletHandler)
-    log("BulletHandler OK Fire=" .. typeof(BH and BH.Fire))
-end)
-pcall(function()
-    GF = require(ReplicatedStorage.ModuleScripts.GunModules.GunFramework)
-    local keys = {}
-    if type(GF) == "table" then
-        for k, v in pairs(GF) do
-            table.insert(keys, tostring(k) .. ":" .. typeof(v))
-        end
-    end
-    log("GunFramework OK keys={" .. table.concat(keys, ",") .. "}")
-end)
-
--- ── 2. gc inventory of gun-shaped tables ────────────────────
 local function scanGunTables()
     local list = {}
     pcall(function()
@@ -108,80 +53,154 @@ local function scanGunTables()
     return list
 end
 
-sep("GC GUN-SHAPED (Ammo number + reloadTime number)")
-local guns = scanGunTables()
-log("count=" .. tostring(#guns))
--- group by table id, show top scores
-table.sort(guns, function(a, b) return scoreGun(a) > scoreGun(b) end)
-local show = math.min(#guns, 8)
-for i = 1, show do
-    local g = guns[i]
-    local keys = dumpKeys(g, 25)
-    log(string.format(
-        "#%d id=%s score=%d Ammo=%s reloadTime=%s Reloading=%s CanFire=%s",
-        i,
-        tableId(g),
-        scoreGun(g),
-        tostring(rawget(g, "Ammo")),
-        tostring(rawget(g, "reloadTime")),
-        tostring(rawget(g, "Reloading")),
-        tostring(rawget(g, "CanFire"))
-    ))
-    log("  keys: " .. table.concat(keys, " | "))
-end
-if #guns > show then
-    log("... +" .. tostring(#guns - show) .. " more")
+local function fnSrc(fn)
+    local s, n = "", ""
+    pcall(function() s = tostring(debug.info(fn, "s")) end)
+    pcall(function() n = tostring(debug.info(fn, "n")) end)
+    return n, s
 end
 
--- ── 3. hook GunFramework.new — watch identities ─────────────
-sep("HOOK GunFramework.new")
-local newCount = 0
-local lastNewId = nil
-if GF and type(GF.new) == "function" then
-    local oldNew = GF.new
-    GF.new = function(...)
-        local obj = oldNew(...)
-        newCount = newCount + 1
-        lastNewId = tableId(obj)
-        log(string.format("NEW #%d id=%s gunShape=%s", newCount, lastNewId, tostring(isGunShape(obj))))
-        if type(obj) == "table" then
-            local keys = dumpKeys(obj, 20)
-            log("  NEW keys: " .. table.concat(keys, " | "))
-            -- if not yet gun shape, check next frame
-            task.defer(function()
-                task.wait(0.05)
-                log(string.format("  NEW #%d deferred gunShape=%s Ammo=%s reloadTime=%s",
-                    newCount,
-                    tostring(isGunShape(obj)),
-                    tostring(rawget(obj, "Ammo")),
-                    tostring(rawget(obj, "reloadTime"))
-                ))
-            end)
+local function hasReloadConst(fn)
+    local ok, consts = pcall(debug.getconstants, fn)
+    if not ok or type(consts) ~= "table" then return false, {} end
+    local hits = {}
+    for _, c in ipairs(consts) do
+        if type(c) == "string" then
+            local l = string.lower(c)
+            if l:find("reload", 1, true) or l == "ammo" or l:find("canfire", 1, true) then
+                table.insert(hits, c)
+            end
         end
-        return obj
     end
-    log("new hooked — equip / respawn to see NEW lines")
-else
-    log("GunFramework.new unavailable")
+    return #hits > 0, hits
 end
 
--- ── 4. Fire wrap — correlate shot with which table Ammo moves ─
-sep("HOOK Fire")
+local function dumpUpvalues(fn, label)
+    local lines = {}
+    pcall(function()
+        local i = 1
+        while i <= 40 do
+            local name, val = debug.getupvalue(fn, i)
+            if not name then break end
+            local show = false
+            local ln = string.lower(tostring(name))
+            if type(val) == "number" or type(val) == "boolean" then
+                show = true
+            elseif type(val) == "table" and isGunShape(val) then
+                show = true
+            elseif ln:find("reload") or ln:find("ammo") or ln:find("cool") or ln:find("wait") or ln:find("delay") then
+                show = true
+            end
+            if show then
+                local extra = ""
+                if type(val) == "table" and isGunShape(val) then
+                    extra = string.format(" [Ammo=%s reloadTime=%s]",
+                        tostring(rawget(val, "Ammo")),
+                        tostring(rawget(val, "reloadTime")))
+                end
+                table.insert(lines, string.format("  uv[%d] %s = %s%s", i, tostring(name), safeType(val), extra))
+            end
+            i = i + 1
+        end
+    end)
+    if #lines > 0 then
+        log(label)
+        for _, L in ipairs(lines) do log(L) end
+    end
+end
+
+-- ── modules ─────────────────────────────────────────────────
+sep("MODULES")
+local BH, GF
+pcall(function()
+    BH = require(ReplicatedStorage.ModuleScripts.GunModules.BulletHandler)
+    log("BulletHandler OK")
+end)
+pcall(function()
+    GF = require(ReplicatedStorage.ModuleScripts.GunModules.GunFramework)
+    log("GunFramework OK")
+end)
+
+-- ── list GF reload-related functions + upvalues once ────────
+sep("GUNFRAMEWORK RELOAD FNS + UPVALUES")
+local reloadFns = {}
+pcall(function()
+    for _, obj in ipairs(getgc()) do
+        if type(obj) == "function" then
+            local n, s = fnSrc(obj)
+            if s:find("GunFramework", 1, true) then
+                local has, hits = hasReloadConst(obj)
+                if has then
+                    table.insert(reloadFns, obj)
+                    log(string.format("fn name=%s consts=[%s]", n, table.concat(hits, ",")))
+                    dumpUpvalues(obj, "  upvalues:")
+                end
+            end
+        end
+    end
+end)
+log("reload-related GF fns: " .. tostring(#reloadFns))
+
+-- ── gc gun tables ───────────────────────────────────────────
+sep("GC GUN-SHAPED")
+do
+    local list = scanGunTables()
+    log("count=" .. tostring(#list))
+    for i, g in ipairs(list) do
+        if i > 5 then break end
+        log(string.format("#%d id=%s Ammo=%s reloadTime=%s",
+            i, tableId(g), tostring(rawget(g, "Ammo")), tostring(rawget(g, "reloadTime"))))
+    end
+end
+
+-- ── Fire: snapshot tables + upvalue numbers around shot ─────
+sep("FIRE HOOK")
 local fireN = 0
+
+local function snapshotReloadState(tag)
+    log("-- snapshot " .. tag)
+    local list = scanGunTables()
+    log("gun-shaped count=" .. tostring(#list))
+    for _, g in ipairs(list) do
+        log(string.format("  table id=%s Ammo=%s reloadTime=%s",
+            tableId(g), tostring(rawget(g, "Ammo")), tostring(rawget(g, "reloadTime"))))
+    end
+    for _, fn in ipairs(reloadFns) do
+        local n = fnSrc(fn)
+        pcall(function()
+            local i = 1
+            while i <= 40 do
+                local name, val = debug.getupvalue(fn, i)
+                if not name then break end
+                if type(val) == "number" then
+                    local ln = string.lower(tostring(name))
+                    if ln:find("reload") or ln:find("ammo") or ln:find("cool")
+                        or ln:find("wait") or ln:find("delay") or ln:find("time")
+                        or val == 0.8 or (val > 0 and val < 5) then
+                        log(string.format("  uv %s.%s = %s", n, tostring(name), tostring(val)))
+                    end
+                elseif type(val) == "boolean" then
+                    local ln = string.lower(tostring(name))
+                    if ln:find("reload") or ln:find("fire") or ln:find("ready") then
+                        log(string.format("  uv %s.%s = %s", n, tostring(name), tostring(val)))
+                    end
+                elseif type(val) == "table" and isGunShape(val) then
+                    log(string.format("  uv %s.%s → table Ammo=%s reloadTime=%s",
+                        n, tostring(name),
+                        tostring(rawget(val, "Ammo")),
+                        tostring(rawget(val, "reloadTime"))))
+                end
+                i = i + 1
+            end
+        end)
+    end
+end
+
 if BH and type(BH.Fire) == "function" then
     local oldFire = BH.Fire
     BH.Fire = function(data)
         fireN = fireN + 1
         sep("FIRE #" .. fireN)
-
-        -- snapshot all gun-shaped Ammo before
-        local before = {}
-        local list = scanGunTables()
-        for _, g in ipairs(list) do
-            before[tableId(g)] = rawget(g, "Ammo")
-        end
-        log("gun-shaped at fire: " .. tostring(#list))
-
         if type(data) == "table" and type(data.Misc) == "table" then
             log(string.format("Misc AmmoCount=%s MaxAmmo=%s ReloadTime=%s",
                 tostring(data.Misc.AmmoCount),
@@ -189,126 +208,43 @@ if BH and type(BH.Fire) == "function" then
                 tostring(data.Misc.ReloadTime)
             ))
         end
-
+        snapshotReloadState("pre")
         local result = oldFire(data)
-
-        -- which tables changed Ammo?
         task.defer(function()
-            local list2 = scanGunTables()
-            local changed = 0
-            for _, g in ipairs(list2) do
-                local id = tableId(g)
-                local a = rawget(g, "Ammo")
-                local b = before[id]
-                if b ~= nil and a ~= b then
-                    changed = changed + 1
-                    log(string.format("AMMO CHANGE id=%s %s → %s reloadTime=%s Reloading=%s",
-                        id, tostring(b), tostring(a),
-                        tostring(rawget(g, "reloadTime")),
-                        tostring(rawget(g, "Reloading"))
-                    ))
-                end
-            end
-            if changed == 0 then
-                log("AMMO CHANGE: none (Ammo not on scanned tables, or unchanged)")
-            end
+            snapshotReloadState("post-defer")
         end)
-
-        task.delay(0.2, function()
-            local list3 = scanGunTables()
-            for _, g in ipairs(list3) do
-                local a = rawget(g, "Ammo")
-                local rt = rawget(g, "reloadTime")
-                local rel = rawget(g, "Reloading")
-                if a == 0 or rel == true or (type(rt) == "number" and rt > 0) then
-                    log(string.format("POST0.2 id=%s Ammo=%s reloadTime=%s Reloading=%s",
-                        tableId(g), tostring(a), tostring(rt), tostring(rel)))
-                end
-            end
+        task.delay(0.15, function()
+            snapshotReloadState("post-0.15")
         end)
-
+        task.delay(0.5, function()
+            snapshotReloadState("post-0.5")
+        end)
         return result
     end
-    log("Fire hooked — shoot once")
+    log("Fire hooked")
 else
-    log("BulletHandler.Fire unavailable")
+    log("no BulletHandler.Fire")
 end
 
--- ── 5. character / tool watch ───────────────────────────────
-sep("CHARACTER / TOOL WATCH")
-local function watchChar(char)
-    if not char then return end
-    log("Character=" .. char.Name)
-    controller = nil -- luau no-op; just marker
-    char.ChildAdded:Connect(function(ch)
-        if ch:IsA("Tool") then
-            log("Tool added to char: " .. ch.Name)
-            task.delay(0.2, function()
-                local list = scanGunTables()
-                log("after tool+0.2s gun-shaped count=" .. tostring(#list))
-                if GF and lastNewId then
-                    log("last NEW id=" .. tostring(lastNewId))
-                end
-            end)
-        end
-    end)
-end
-
-if LocalPlayer.Character then
-    watchChar(LocalPlayer.Character)
-end
-LocalPlayer.CharacterAdded:Connect(function(char)
+-- ── respawn ─────────────────────────────────────────────────
+LocalPlayer.CharacterAdded:Connect(function()
     sep("RESPAWN")
-    log("CharacterAdded")
-    local beforeIds = {}
-    for _, g in ipairs(scanGunTables()) do
-        beforeIds[tableId(g)] = true
-    end
-    log("gun-shaped before settle: " .. tostring(#scanGunTables()))
-
-    watchChar(char)
-
     task.spawn(function()
-        for i = 1, 15 do
-            task.wait(0.3)
-            local list = scanGunTables()
-            local fresh = 0
-            for _, g in ipairs(list) do
-                if not beforeIds[tableId(g)] then
-                    fresh = fresh + 1
-                end
-            end
-            log(string.format("t=%.1f count=%d fresh=%d lastNew=%s",
-                i * 0.3, #list, fresh, tostring(lastNewId)))
-            if lastNewId or fresh > 0 then
-                -- print one fresh detail
-                for _, g in ipairs(list) do
-                    if not beforeIds[tableId(g)] then
-                        log(string.format("  FRESH id=%s Ammo=%s reloadTime=%s",
-                            tableId(g), tostring(rawget(g, "Ammo")), tostring(rawget(g, "reloadTime"))))
-                        break
-                    end
-                end
-            end
+        task.wait(0.4)
+        local list = scanGunTables()
+        log("gun-shaped after respawn+0.4s: " .. tostring(#list))
+        for _, g in ipairs(list) do
+            log(string.format("  id=%s Ammo=%s reloadTime=%s",
+                tableId(g), tostring(rawget(g, "Ammo")), tostring(rawget(g, "reloadTime"))))
         end
-        log("respawn watch done — equip gun + shoot if needed")
+        -- refresh fn list upvalues after respawn
+        snapshotReloadState("respawn+0.4")
     end)
 end)
 
-local bp = LocalPlayer:FindFirstChild("Backpack")
-if bp then
-    bp.ChildAdded:Connect(function(ch)
-        if ch:IsA("Tool") then
-            log("Tool added to backpack: " .. ch.Name)
-        end
-    end)
-end
-
--- ── 6. instructions ─────────────────────────────────────────
 sep("INSTRUCTIONS")
-log("1. Note GC count and top table ids")
-log("2. Shoot once — watch AMMO CHANGE lines (which id moved)")
-log("3. Die / respawn — watch RESPAWN + NEW + fresh ids")
-log("4. Equip gun — Tool added + count/fresh")
-log("5. Shoot again — does AMMO CHANGE use a NEW id or old?")
-log("Paste all [PROBE] lines from a full cycle")
+log("1. Shoot once (alive)")
+log("2. Die, respawn, wait for auto gun")
+log("3. Shoot once")
+log("4. Paste all [PROBE] lines")
+log("Watch: uv *reload* / *0.8* changing around FIRE vs table reloadTime")
