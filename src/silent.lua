@@ -1,5 +1,6 @@
 --[[
-    Flick · Silent + Insta Reload / Rapid v5
+    Flick · Silent + Insta Reload v6
+    Safe keys only — do NOT zero FireRate / generic "rate"
 ]]
 
 local Silent = {}
@@ -137,6 +138,7 @@ local function SetController(obj)
     print("[Rage] controller set")
 end
 
+-- ONLY safe keys — never touch FireRate / generic rate
 local function PatchController(obj)
     if type(obj) ~= "table" then return end
     pcall(function()
@@ -144,38 +146,26 @@ local function PatchController(obj)
         local ma = rawget(obj, "MaxAmmo")
         if type(ma) == "number" and ma > 0 then maxAmmo = ma end
 
-        -- hard writes for known keys
-        if rawget(obj, "Ammo") ~= nil then rawset(obj, "Ammo", maxAmmo) end
-        if rawget(obj, "ammo") ~= nil then rawset(obj, "ammo", maxAmmo) end
-        if rawget(obj, "reloadTime") ~= nil then rawset(obj, "reloadTime", 0) end
-        if rawget(obj, "ReloadTime") ~= nil then rawset(obj, "ReloadTime", 0) end
-        if rawget(obj, "Reloading") ~= nil then rawset(obj, "Reloading", false) end
-        if rawget(obj, "reloading") ~= nil then rawset(obj, "reloading", false) end
-        if rawget(obj, "CanReload") ~= nil then rawset(obj, "CanReload", true) end
-        if rawget(obj, "CanFire") ~= nil then rawset(obj, "CanFire", true) end
-        if rawget(obj, "canFire") ~= nil then rawset(obj, "canFire", true) end
+        if type(rawget(obj, "Ammo")) == "number" then rawset(obj, "Ammo", maxAmmo) end
+        if type(rawget(obj, "reloadTime")) == "number" then rawset(obj, "reloadTime", 0) end
+        if type(rawget(obj, "ReloadTime")) == "number" then rawset(obj, "ReloadTime", 0) end
 
-        -- sweep every field: kill timers / fill ammo-like numbers
-        for k, v in pairs(obj) do
-            local lk = string.lower(tostring(k))
-            if type(v) == "number" then
-                if lk:find("delay", 1, true) or lk:find("cool", 1, true)
-                    or lk:find("next", 1, true) or lk:find("last", 1, true)
-                    or lk:find("wait", 1, true) or lk:find("interval", 1, true)
-                    or lk:find("rate", 1, true) or lk:find("debounce", 1, true)
-                    or lk:find("reload", 1, true) then
-                    if v ~= 0 then rawset(obj, k, 0) end
-                elseif (lk:find("ammo", 1, true) or lk == "mag" or lk:find("clip", 1, true))
-                    and not lk:find("max", 1, true) and not lk:find("size", 1, true) then
-                    if v ~= maxAmmo then rawset(obj, k, maxAmmo) end
-                end
-            elseif type(v) == "boolean" then
-                if lk:find("reload", 1, true) and v == true then
-                    rawset(obj, k, false)
-                elseif (lk:find("canfire", 1, true) or lk:find("ready", 1, true) or lk:find("canshoot", 1, true)) and v == false then
-                    rawset(obj, k, true)
-                end
-            end
+        if type(rawget(obj, "Reloading")) == "boolean" then rawset(obj, "Reloading", false) end
+        if type(rawget(obj, "reloading")) == "boolean" then rawset(obj, "reloading", false) end
+        if type(rawget(obj, "CanReload")) == "boolean" then rawset(obj, "CanReload", true) end
+        if type(rawget(obj, "CanFire")) == "boolean" then rawset(obj, "CanFire", true) end
+        if type(rawget(obj, "canFire")) == "boolean" then rawset(obj, "canFire", true) end
+
+        -- cooldown timestamps: set to past so checks pass
+        local past = tick() - 10
+        for _, k in ipairs({"NextShot", "nextShot", "NextFire", "nextFire", "LastShot", "lastShot"}) do
+            if type(rawget(obj, k)) == "number" then rawset(obj, k, past) end
+        end
+        for _, k in ipairs({"Debounce", "debounce", "CoolingDown", "coolingDown"}) do
+            if type(rawget(obj, k)) == "boolean" then rawset(obj, k, false) end
+        end
+        for _, k in ipairs({"Cooldown", "cooldown", "FireCooldown", "ShootCooldown"}) do
+            if type(rawget(obj, k)) == "number" then rawset(obj, k, 0) end
         end
     end)
 end
@@ -248,7 +238,6 @@ local function ApplyInstaReload(data)
         if type(max) ~= "number" or max < 1 then max = 1 end
         data.Misc.AmmoCount = max
         data.Misc.ReloadTime = 0
-        data.Misc.Spread = 0
     end
 
     EnsureController()
@@ -262,16 +251,16 @@ local function OnRespawn()
     lastStrictScan = 0
     task.spawn(function()
         HookGunFrameworkNew()
-        for i = 1, 20 do
+        for i = 1, 25 do
             task.wait(0.2)
             StrictScanOnce(true)
             if controller then
                 PatchController(controller)
-                print("[Rage] respawn ok t=" .. string.format("%.1f", i * 0.2))
+                print("[Rage] respawn ok")
                 return
             end
         end
-        print("[Rage] respawn miss — shoot once to bind")
+        print("[Rage] respawn miss — shoot to bind")
     end)
 end
 
@@ -304,7 +293,7 @@ function Silent.Init()
 
     HookGunFrameworkNew()
     task.defer(function()
-        task.wait(0.3)
+        task.wait(0.4)
         StrictScanOnce(true)
     end)
 
@@ -313,7 +302,6 @@ function Silent.Init()
     local oldFire = BH.Fire
     BH.Fire = function(data)
         if type(data) == "table" then
-            -- patch BEFORE fire so ammo is full going in
             if Silent.Config.InstaReload then
                 pcall(ApplyInstaReload, data)
             end
@@ -333,7 +321,6 @@ function Silent.Init()
                 end
             end
             local result = oldFire(data)
-            -- patch AFTER fire so cooldown is cleared immediately
             if Silent.Config.InstaReload and controller then
                 PatchController(controller)
             end
@@ -342,11 +329,12 @@ function Silent.Init()
         return oldFire(data)
     end
 
-    -- every frame while enabled: keep gun hot
     RunService.Heartbeat:Connect(function()
         if not Silent.Config.InstaReload then return end
         if controller and IsStrictController(controller) then
             PatchController(controller)
+        elseif Silent.Config.InstaReload then
+            EnsureController()
         end
     end)
 
@@ -359,13 +347,9 @@ function Silent.Init()
         else
             FOVCircle.Visible = false
         end
-        -- second patch path for lower latency between clicks
-        if Silent.Config.InstaReload and controller then
-            PatchController(controller)
-        end
     end)
 
-    print("[Rage] ready v5")
+    print("[Rage] ready v6")
     return true
 end
 
