@@ -76,9 +76,9 @@ function UI.Init(Silent, ESP, Anti, Perf)
     local GBRage = TabRage:CreateGroupbox("Gun", "Left")
 
     GBRage:AddToggle({
-        Text = "Insta Reload",
-        Default = Silent.Config.InstaReload,
-        Callback = function(v) Silent.Config.InstaReload = v end,
+        Text = "No Reload",
+        Default = Silent.Config.NoReload,
+        Callback = function(v) Silent.Config.NoReload = v end,
     })
 
     -- ── Visuals ─────────────────────────────────────────────
@@ -179,9 +179,9 @@ function UI.Init(Silent, ESP, Anti, Perf)
     GBArch:AddLabel("Origin locked ~1.7 studs")
     GBArch:AddLabel("Silent: Direction → torso")
 
-    GBRageInfo:AddLabel("Insta Reload patches Misc")
-    GBRageInfo:AddLabel("and scans ammo IntValues")
-    GBRageInfo:AddLabel("Warns in output on failure")
+    GBRageInfo:AddLabel("No Reload zeros reloadTime")
+    GBRageInfo:AddLabel("on live gun config table")
+    GBRageInfo:AddLabel("Rebinds each respawn / tool")
 
     GBCtrl:AddLabel("RightShift · menu")
     GBCtrl:AddLabel("Title bar · drag")
