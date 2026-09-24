@@ -1,7 +1,6 @@
 --[[
-    Flick · Silent + Insta Reload / Rapid
-    Controllers from GunFramework.new (Ammo, reloadTime, CanReload)
-    Heartbeat keep-alive · respawn rescan
+    Flick · Silent + Insta Reload (optimized)
+    Only track objects returned by GunFramework.new — never bulk getgc
 ]]
 
 local Silent = {}
@@ -36,15 +35,13 @@ FOVCircle.Visible   = false
 FOVCircle.ZIndex    = 2
 
 local stickyTarget = nil
-local controllers = {}
+local controllers = {} -- only from GF.new
+local MAX_CONTROLLERS = 4
 local hookedNew = false
-local lastScan = 0
+local patchAccumulator = 0
 
 local function GetChar(plr) return plr and plr.Character end
 local function GetHum(c) return c and c:FindFirstChildOfClass("Humanoid") end
-local function GetRoot(c)
-    return c and (c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("UpperTorso") or c:FindFirstChild("Torso"))
-end
 local function GetPart(c, n) return c and c:FindFirstChild(n) end
 local function Alive(plr)
     local c = GetChar(plr)
@@ -127,141 +124,61 @@ local function GetClosest()
     return best
 end
 
-local function IsController(t)
-    if type(t) ~= "table" then return false end
-    local ok, res = pcall(function()
-        local hasAmmo = rawget(t, "Ammo") ~= nil or rawget(t, "ammo") ~= nil
-        local hasReload = rawget(t, "reloadTime") ~= nil or rawget(t, "ReloadTime") ~= nil
-            or rawget(t, "CanReload") ~= nil or rawget(t, "Reloading") ~= nil
-        return hasAmmo and hasReload
-    end)
-    return ok and res
-end
-
 local function TrackController(obj)
-    if not IsController(obj) then return false end
+    if type(obj) ~= "table" then return end
     for _, c in ipairs(controllers) do
-        if c == obj then return true end
+        if c == obj then return end
     end
     table.insert(controllers, obj)
-    print("[Rage] controller +" .. tostring(#controllers))
-    return true
+    -- keep only newest
+    while #controllers > MAX_CONTROLLERS do
+        table.remove(controllers, 1)
+    end
+    print("[Rage] controller tracked (" .. tostring(#controllers) .. ")")
 end
 
 local function PatchController(obj)
-    local n = 0
     pcall(function()
         local maxAmmo = 1
-        for _, key in ipairs({"MaxAmmo", "maxAmmo", "MagSize", "magSize"}) do
-            local v = rawget(obj, key)
-            if type(v) == "number" and v > 0 then
-                maxAmmo = v
-                break
-            end
-        end
+        local ma = rawget(obj, "MaxAmmo") or rawget(obj, "maxAmmo") or rawget(obj, "MagSize")
+        if type(ma) == "number" and ma > 0 then maxAmmo = ma end
 
-        local function set(k, v)
-            local cur = rawget(obj, k)
-            if cur ~= nil and cur ~= v then
-                rawset(obj, k, v)
-                n = n + 1
-            elseif cur ~= nil and cur == v then
-                -- already set
-            elseif cur == nil then
-                -- try set anyway for known keys
-            end
-            if cur ~= nil then
-                rawset(obj, k, v)
-            end
-        end
-
-        -- force write known keys if present
-        local writes = {
-            Ammo = maxAmmo,
-            ammo = maxAmmo,
-            AmmoCount = maxAmmo,
-            Magazine = maxAmmo,
-            reloadTime = 0,
-            ReloadTime = 0,
-            Reloading = false,
-            reloading = false,
-            CanReload = true,
-            CanFire = true,
-            canFire = true,
-            Debounce = false,
-            debounce = false,
-            Cooldown = 0,
-            cooldown = 0,
-            NextShot = 0,
-            nextShot = 0,
-            NextFire = 0,
-            nextFire = 0,
-            LastFire = 0,
-            lastFire = 0,
-            FireDelay = 0,
-            fireDelay = 0,
-            ShootDelay = 0,
-        }
-        for k, v in pairs(writes) do
+        local function force(k, v)
             if rawget(obj, k) ~= nil then
                 rawset(obj, k, v)
-                n = n + 1
             end
         end
 
-        -- any numeric key that looks like a timer / delay
-        for k, v in pairs(obj) do
-            local lk = string.lower(tostring(k))
-            if type(v) == "number" then
-                if lk:find("delay") or lk:find("cool") or lk:find("next")
-                    or lk:find("lastfire") or lk:find("lastshot") or lk:find("wait") then
-                    if v ~= 0 then
-                        rawset(obj, k, 0)
-                        n = n + 1
-                    end
-                end
-                if (lk:find("ammo") or lk == "mag" or lk:find("clip")) and not lk:find("max") and not lk:find("size") then
-                    if v ~= maxAmmo then
-                        rawset(obj, k, maxAmmo)
-                        n = n + 1
-                    end
-                end
-            elseif type(v) == "boolean" then
-                if lk:find("reloading") and v == true then
-                    rawset(obj, k, false)
-                    n = n + 1
-                end
-            end
-        end
+        force("Ammo", maxAmmo)
+        force("ammo", maxAmmo)
+        force("AmmoCount", maxAmmo)
+        force("reloadTime", 0)
+        force("ReloadTime", 0)
+        force("Reloading", false)
+        force("reloading", false)
+        force("CanReload", true)
+        force("CanFire", true)
+        force("canFire", true)
+        force("Debounce", false)
+        force("Cooldown", 0)
+        force("NextShot", 0)
+        force("nextShot", 0)
+        force("NextFire", 0)
+        force("LastFire", 0)
+        force("lastFire", 0)
+        force("FireDelay", 0)
+        force("fireDelay", 0)
     end)
-    return n
 end
 
 local function PatchAll()
-    local total = 0
-    -- drop dead refs
-    local live = {}
-    for _, c in ipairs(controllers) do
-        if type(c) == "table" then
-            table.insert(live, c)
-            total = total + PatchController(c)
+    for i = #controllers, 1, -1 do
+        local c = controllers[i]
+        if type(c) ~= "table" then
+            table.remove(controllers, i)
+        else
+            PatchController(c)
         end
-    end
-    controllers = live
-    return total
-end
-
-local function ScanExistingControllers()
-    local found = 0
-    pcall(function()
-        for _, obj in ipairs(getgc(true)) do
-            if type(obj) == "table" and IsController(obj) then
-                if TrackController(obj) then found = found + 1 end
-            end
-        end
-    end)
-    if found > 0 then
-        print("[Rage] scan found " .. tostring(found) .. " total " .. tostring(#controllers))
     end
 end
 
@@ -277,57 +194,48 @@ local function HookGunFrameworkNew()
     if not ok or type(GF) ~= "table" or type(GF.new) ~= "function" then
         return false
     end
+    if hookedNew then return true end
 
-    -- always re-wrap (respawn may get new module env in rare cases; usually same)
-    if not hookedNew then
-        local oldNew = GF.new
-        GF.new = function(...)
-            local obj = oldNew(...)
-            pcall(function()
-                if type(obj) == "table" then
-                    TrackController(obj)
-                    if Silent.Config.InstaReload then
-                        PatchController(obj)
-                    end
-                end
-            end)
-            return obj
+    local oldNew = GF.new
+    GF.new = function(...)
+        local obj = oldNew(...)
+        if type(obj) == "table" then
+            TrackController(obj)
+            if Silent.Config.InstaReload then
+                PatchController(obj)
+            end
         end
-        hookedNew = true
-        print("[Rage] GunFramework.new hooked")
+        return obj
     end
+    hookedNew = true
+    print("[Rage] GunFramework.new hooked")
     return true
 end
 
 local function OnRespawn()
-    -- clear stale controllers from old character
     controllers = {}
-    hookedNew = false
+    -- keep hookedNew true — same GF.new wrapper still works for next character
     task.defer(function()
         HookGunFrameworkNew()
-        task.wait(0.3)
-        ScanExistingControllers()
-        task.wait(0.5)
-        ScanExistingControllers()
+        -- wait for gun to construct
+        for _ = 1, 10 do
+            task.wait(0.25)
+            if #controllers > 0 then break end
+        end
         if Silent.Config.InstaReload then
             PatchAll()
         end
-        print("[Rage] respawn rebind controllers=" .. tostring(#controllers))
+        print("[Rage] respawn controllers=" .. tostring(#controllers))
     end)
 end
 
 local function ApplyInstaReload(data)
     if not Silent.Config.InstaReload then return end
-
     if type(data) == "table" and type(data.Misc) == "table" then
         local max = data.Misc.MaxAmmo
         if type(max) ~= "number" or max < 1 then max = 1 end
         data.Misc.AmmoCount = max
         data.Misc.ReloadTime = 0
-    end
-
-    if #controllers == 0 then
-        ScanExistingControllers()
     end
     PatchAll()
 end
@@ -360,20 +268,8 @@ function Silent.Init()
     end
 
     HookGunFrameworkNew()
-    ScanExistingControllers()
 
-    -- respawn
-    LocalPlayer.CharacterAdded:Connect(function()
-        OnRespawn()
-    end)
-    if LocalPlayer.Character then
-        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-        if hum then
-            hum.Died:Connect(function()
-                -- prepare for next character
-            end)
-        end
-    end
+    LocalPlayer.CharacterAdded:Connect(OnRespawn)
 
     local oldFire = BH.Fire
     BH.Fire = function(data)
@@ -398,18 +294,10 @@ function Silent.Init()
         return oldFire(data)
     end
 
-    -- continuous rapid: keep ammo full and timers at 0 every frame while enabled
+    -- light heartbeat: only patch known controllers (0–4), no getgc
     RunService.Heartbeat:Connect(function()
         if not Silent.Config.InstaReload then return end
-        if #controllers == 0 then
-            local now = tick()
-            if now - lastScan > 1 then
-                lastScan = now
-                ScanExistingControllers()
-                HookGunFrameworkNew()
-            end
-            return
-        end
+        if #controllers == 0 then return end
         PatchAll()
     end)
 
@@ -424,7 +312,7 @@ function Silent.Init()
         end
     end)
 
-    print("[Rage] ready · heartbeat rapid · respawn rebind")
+    print("[Rage] ready (no gc scan)")
     return true
 end
 
