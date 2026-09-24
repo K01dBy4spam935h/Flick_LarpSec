@@ -1,5 +1,5 @@
 --[[
-    Flick LarpSec loader
+    LarpSec - Flick v1
     loadstring(game:HttpGet("https://raw.githubusercontent.com/K01dBy4spam935h/Flick_LarpSec/main/loader.lua"))()
 ]]
 
@@ -13,7 +13,6 @@ local function fetch(name)
     return loadstring(game:HttpGet(BASE .. name))()
 end
 
--- anti first
 local Anti = fetch("anti.lua")
 Anti.Init()
 task.wait(0.25)
