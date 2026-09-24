@@ -1,6 +1,6 @@
 --[[
-    Flick · Silent + Insta Reload v7
-    Simple: bind controller · Ammo/reloadTime only · patch on Fire + short burst after
+    Flick · Silent + Insta Reload v8
+    Rebind on tool equip · quiet · no spam
 ]]
 
 local Silent = {}
@@ -37,6 +37,7 @@ FOVCircle.ZIndex    = 2
 local stickyTarget = nil
 local controller = nil
 local hookedNew = false
+local lastScan = 0
 
 local function GetChar(plr) return plr and plr.Character end
 local function GetHum(c) return c and c:FindFirstChildOfClass("Humanoid") end
@@ -125,39 +126,30 @@ end
 local function IsGunController(t)
     if type(t) ~= "table" then return false end
     local ok, res = pcall(function()
-        return type(rawget(t, "Ammo")) == "number"
-            and type(rawget(t, "reloadTime")) == "number"
-            and rawget(t, "CanReload") ~= nil
+        return type(rawget(t, "Ammo")) == "number" and type(rawget(t, "reloadTime")) == "number"
     end)
     return ok and res
 end
 
-local function SetController(obj, src)
-    if not IsGunController(obj) then return false end
-    controller = obj
-    local ammo = rawget(obj, "Ammo")
-    local rt = rawget(obj, "reloadTime")
-    print(string.format("[Rage] bound (%s) Ammo=%s reloadTime=%s", tostring(src), tostring(ammo), tostring(rt)))
-    return true
-end
-
-local function Patch()
-    local obj = controller
-    if not obj or not IsGunController(obj) then return false end
+local function Patch(obj)
+    obj = obj or controller
+    if not obj or not IsGunController(obj) then return end
     pcall(function()
         local maxAmmo = rawget(obj, "MaxAmmo")
         if type(maxAmmo) ~= "number" or maxAmmo < 1 then maxAmmo = 1 end
         rawset(obj, "Ammo", maxAmmo)
         rawset(obj, "reloadTime", 0)
         if type(rawget(obj, "Reloading")) == "boolean" then rawset(obj, "Reloading", false) end
-        if type(rawget(obj, "reloading")) == "boolean" then rawset(obj, "reloading", false) end
-        if type(rawget(obj, "CanReload")) == "boolean" then rawset(obj, "CanReload", true) end
         if type(rawget(obj, "CanFire")) == "boolean" then rawset(obj, "CanFire", true) end
+        if type(rawget(obj, "CanReload")) == "boolean" then rawset(obj, "CanReload", true) end
     end)
-    return true
 end
 
-local function ScanController()
+local function Scan()
+    local now = tick()
+    if now - lastScan < 0.5 then return controller ~= nil end
+    lastScan = now
+
     local found = nil
     pcall(function()
         for _, obj in ipairs(getgc(true)) do
@@ -167,63 +159,75 @@ local function ScanController()
         end
     end)
     if found then
-        SetController(found, "scan")
+        controller = found
         return true
     end
     return false
 end
 
 local function HookNew()
-    local ok, GF = pcall(function()
-        return require(
-            ReplicatedStorage.ModuleScripts.GunModules.GunFramework
-        )
-    end)
-    if not ok or type(GF) ~= "table" or type(GF.new) ~= "function" then
-        warn("[Rage] GunFramework missing")
-        return
-    end
     if hookedNew then return end
+    local ok, GF = pcall(function()
+        return require(ReplicatedStorage.ModuleScripts.GunModules.GunFramework)
+    end)
+    if not ok or type(GF) ~= "table" or type(GF.new) ~= "function" then return end
+
     local old = GF.new
     GF.new = function(...)
         local obj = old(...)
-        if type(obj) == "table" then
-            SetController(obj, "new")
+        if type(obj) == "table" and IsGunController(obj) then
+            controller = obj
             if Silent.Config.InstaReload then
-                Patch()
+                Patch(obj)
             end
+        elseif type(obj) == "table" then
+            -- still track if it has Ammo after a tick (constructed async)
+            task.defer(function()
+                if IsGunController(obj) then
+                    controller = obj
+                    if Silent.Config.InstaReload then Patch(obj) end
+                end
+            end)
         end
         return obj
     end
     hookedNew = true
-    print("[Rage] new hooked")
 end
 
-local function BurstPatch()
-    -- patch several times over ~1s after a shot (covers reload start)
-    task.spawn(function()
-        for _ = 1, 12 do
-            if not Silent.Config.InstaReload then return end
-            Patch()
-            task.wait(0.08)
-        end
-    end)
-end
-
-local function Rebind()
+local function WatchCharacter(char)
+    if not char then return end
     controller = nil
-    HookNew()
-    task.spawn(function()
-        for i = 1, 30 do
-            if ScanController() then
-                if Silent.Config.InstaReload then Patch() end
-                print("[Rage] rebind ok")
-                return
+
+    local function onTool(tool)
+        if not tool:IsA("Tool") then return end
+        task.defer(function()
+            task.wait(0.15)
+            Scan()
+            if controller and Silent.Config.InstaReload then
+                Patch()
             end
-            task.wait(0.25)
+        end)
+        tool.Equipped:Connect(function()
+            task.defer(function()
+                task.wait(0.1)
+                Scan()
+                if controller and Silent.Config.InstaReload then Patch() end
+            end)
+        end)
+    end
+
+    for _, ch in ipairs(char:GetChildren()) do
+        onTool(ch)
+    end
+    char.ChildAdded:Connect(onTool)
+
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if bp then
+        for _, ch in ipairs(bp:GetChildren()) do
+            onTool(ch)
         end
-        print("[Rage] rebind fail")
-    end)
+        bp.ChildAdded:Connect(onTool)
+    end
 end
 
 local function FindBulletHandler()
@@ -248,21 +252,26 @@ function Silent.Init()
     end
 
     HookNew()
-    task.defer(function()
-        task.wait(0.5)
-        ScanController()
-    end)
 
-    LocalPlayer.CharacterAdded:Connect(function()
-        print("[Rage] character added")
-        Rebind()
+    if LocalPlayer.Character then
+        WatchCharacter(LocalPlayer.Character)
+        task.defer(Scan)
+    end
+    LocalPlayer.CharacterAdded:Connect(function(char)
+        WatchCharacter(char)
+        task.defer(function()
+            task.wait(0.3)
+            Scan()
+        end)
     end)
 
     local oldFire = BH.Fire
     BH.Fire = function(data)
         if type(data) == "table" then
             if Silent.Config.InstaReload then
-                if not controller then ScanController() end
+                if not controller or not IsGunController(controller) then
+                    Scan()
+                end
                 if type(data.Misc) == "table" then
                     local max = data.Misc.MaxAmmo
                     if type(max) ~= "number" or max < 1 then max = 1 end
@@ -292,7 +301,10 @@ function Silent.Init()
 
             if Silent.Config.InstaReload then
                 Patch()
-                BurstPatch()
+                task.defer(Patch)
+                task.delay(0.05, Patch)
+                task.delay(0.15, Patch)
+                task.delay(0.35, Patch)
             end
             return result
         end
@@ -310,7 +322,6 @@ function Silent.Init()
         end
     end)
 
-    print("[Rage] ready v7")
     return true
 end
 
