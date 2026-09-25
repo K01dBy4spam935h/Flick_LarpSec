@@ -1,6 +1,5 @@
 --[[
     LarpSec - Flick v1
-    Entry · anti first
 ]]
 
 local BASE = "https://raw.githubusercontent.com/K01dBy4spam935h/Flick_LarpSec/main/src/"
@@ -13,10 +12,14 @@ local Anti = load("anti.lua")
 Anti.Init()
 task.wait(0.35)
 
-local Silent = load("silent.lua")
-local ESP    = load("esp.lua")
-local Perf   = load("perf.lua")
-local UI     = load("ui.lua")
+local Config    = load("config.lua")
+local Silent    = load("silent.lua")
+local ESP       = load("esp.lua")
+local Perf      = load("perf.lua")
+local KillSound = load("killsound.lua")
+local UI        = load("ui.lua")
+
+KillSound.Init(Config)
 
 Perf.Init()
 ESP.Init()
@@ -26,4 +29,4 @@ task.spawn(function()
     Silent.Init()
 end)
 
-UI.Init(Silent, ESP, Anti, Perf)
+UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
