@@ -4,6 +4,12 @@
 
 local UI = {}
 
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Stats = game:GetService("Stats")
+local LocalPlayer = Players.LocalPlayer
+
 local Themes = {
     Default = {
         Background = Color3.fromRGB(21, 21, 21),
@@ -13,6 +19,8 @@ local Themes = {
         Text       = Color3.fromRGB(255, 255, 255),
         GradA      = Color3.fromRGB(28, 28, 32),
         GradB      = Color3.fromRGB(38, 48, 68),
+        AnimA      = Color3.fromRGB(20, 24, 40),
+        AnimB      = Color3.fromRGB(40, 50, 90),
     },
     Ubuntu = {
         Background = Color3.fromRGB(44, 0, 30),
@@ -22,6 +30,8 @@ local Themes = {
         Text       = Color3.fromRGB(255, 240, 230),
         GradA      = Color3.fromRGB(60, 20, 40),
         GradB      = Color3.fromRGB(140, 50, 20),
+        AnimA      = Color3.fromRGB(50, 10, 30),
+        AnimB      = Color3.fromRGB(160, 60, 20),
     },
     Tokyo = {
         Background = Color3.fromRGB(26, 27, 38),
@@ -31,6 +41,8 @@ local Themes = {
         Text       = Color3.fromRGB(192, 202, 245),
         GradA      = Color3.fromRGB(36, 40, 59),
         GradB      = Color3.fromRGB(80, 50, 120),
+        AnimA      = Color3.fromRGB(30, 35, 70),
+        AnimB      = Color3.fromRGB(90, 50, 140),
     },
     Blossom = {
         Background = Color3.fromRGB(40, 28, 36),
@@ -40,6 +52,8 @@ local Themes = {
         Text       = Color3.fromRGB(255, 230, 240),
         GradA      = Color3.fromRGB(58, 40, 50),
         GradB      = Color3.fromRGB(120, 50, 80),
+        AnimA      = Color3.fromRGB(50, 30, 45),
+        AnimB      = Color3.fromRGB(140, 60, 100),
     },
     Midnight = {
         Background = Color3.fromRGB(8, 10, 24),
@@ -49,6 +63,8 @@ local Themes = {
         Text       = Color3.fromRGB(210, 220, 255),
         GradA      = Color3.fromRGB(16, 20, 40),
         GradB      = Color3.fromRGB(40, 25, 70),
+        AnimA      = Color3.fromRGB(10, 15, 40),
+        AnimB      = Color3.fromRGB(50, 30, 100),
     },
     Dark = {
         Background = Color3.fromRGB(8, 8, 8),
@@ -58,6 +74,8 @@ local Themes = {
         Text       = Color3.fromRGB(230, 230, 230),
         GradA      = Color3.fromRGB(18, 18, 18),
         GradB      = Color3.fromRGB(40, 40, 40),
+        AnimA      = Color3.fromRGB(12, 12, 12),
+        AnimB      = Color3.fromRGB(45, 45, 45),
     },
     Hacker = {
         Background = Color3.fromRGB(4, 12, 4),
@@ -67,6 +85,8 @@ local Themes = {
         Text       = Color3.fromRGB(180, 255, 180),
         GradA      = Color3.fromRGB(10, 24, 10),
         GradB      = Color3.fromRGB(15, 55, 20),
+        AnimA      = Color3.fromRGB(5, 20, 5),
+        AnimB      = Color3.fromRGB(20, 80, 25),
     },
 }
 
@@ -74,6 +94,27 @@ local UI_FONTS = {
     "Gotham", "GothamBold", "SourceSans", "SourceSansBold",
     "Code", "Fantasy", "Arcade", "Bodoni", "Garamond", "Oswald"
 }
+
+local function getExecutorName()
+    local name
+    pcall(function()
+        if identifyexecutor then
+            name = identifyexecutor()
+        end
+    end)
+    if not name or name == "" then
+        pcall(function()
+            if getexecutorname then name = getexecutorname() end
+        end)
+    end
+    if not name or name == "" then
+        pcall(function()
+            if syn and syn.request then name = "Synapse" end
+        end)
+    end
+    if not name or name == "" then name = "Unknown" end
+    return tostring(name)
+end
 
 local function applyGradient(frame, theme, rot)
     if not frame then return end
@@ -89,6 +130,43 @@ local function applyGradient(frame, theme, rot)
     g.Rotation = rot or 90
 end
 
+local animToken = 0
+local function startAnimatedBackground(window, theme)
+    animToken = animToken + 1
+    local token = animToken
+    local root = window.Frame
+    if not root then return end
+    local bg = root:FindFirstChild("AnimBG")
+    if not bg then
+        bg = Instance.new("Frame")
+        bg.Name = "AnimBG"
+        bg.Size = UDim2.new(1, 0, 1, 0)
+        bg.BackgroundColor3 = Color3.new(1, 1, 1)
+        bg.BorderSizePixel = 0
+        bg.ZIndex = 0
+        bg.Parent = root
+        local g = Instance.new("UIGradient")
+        g.Name = "AnimGrad"
+        g.Parent = bg
+    end
+    bg.ZIndex = 0
+    local g = bg:FindFirstChild("AnimGrad")
+    if not g then return end
+    g.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, theme.AnimA),
+        ColorSequenceKeypoint.new(0.5, theme.GradB),
+        ColorSequenceKeypoint.new(1, theme.AnimB),
+    })
+    task.spawn(function()
+        local rot = 0
+        while token == animToken and bg.Parent do
+            rot = (rot + 0.35) % 360
+            g.Rotation = rot
+            task.wait(0.03)
+        end
+    end)
+end
+
 local function applyTheme(window, themeName, fontName)
     local theme = Themes[themeName] or Themes.Default
     pcall(function()
@@ -96,6 +174,7 @@ local function applyTheme(window, themeName, fontName)
         if not root then return end
         root.BackgroundColor3 = theme.Background
         applyGradient(root, theme, 120)
+        startAnimatedBackground(window, theme)
         for _, d in ipairs(root:GetDescendants()) do
             if d:IsA("Frame") then
                 local n = d.Name:lower()
@@ -103,19 +182,28 @@ local function applyTheme(window, themeName, fontName)
                     d.BackgroundColor3 = theme.Groupbox
                     applyGradient(d, theme, 90)
                 end
-                if n:find("fill") or n:find("bar") or n == "accent" then
+                if n:find("fill") or n:find("bar") or n == "sliderfill" or n == "accent" then
                     d.BackgroundColor3 = theme.Accent
-                    applyGradient(d, theme, 0)
-                end
-                if n:find("stroke") or n:find("border") then
-                    d.BackgroundColor3 = theme.Border
+                    local gr = d:FindFirstChildOfClass("UIGradient")
+                    if not gr then
+                        gr = Instance.new("UIGradient")
+                        gr.Parent = d
+                    end
+                    gr.Color = ColorSequence.new({
+                        ColorSequenceKeypoint.new(0, theme.Accent),
+                        ColorSequenceKeypoint.new(1, Color3.new(
+                            math.min(1, theme.Accent.R + 0.25),
+                            math.min(1, theme.Accent.G + 0.2),
+                            math.min(1, theme.Accent.B + 0.15)
+                        )),
+                    })
                 end
             end
             if d:IsA("UIStroke") then
                 d.Color = theme.Border
             end
             if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
-                if d.TextColor3.R > 0.5 then
+                if d.TextColor3.R > 0.45 then
                     d.TextColor3 = theme.Text
                 end
                 if fontName then
@@ -139,12 +227,9 @@ local function openColorPicker(parentGui, current, onChange)
     popup.ZIndex = 80
     popup.Parent = parentGui
     Instance.new("UICorner", popup).CornerRadius = UDim.new(0, 6)
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(60, 60, 80)
-    stroke.Parent = popup
 
     local h, s, v = Color3.toHSV(current or Color3.fromRGB(74, 144, 226))
-    local mode = "Static" -- Static | Rainbow | StaticRainbow
+    local mode = "Static"
 
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, -12, 0, 18)
@@ -209,7 +294,6 @@ local function openColorPicker(parentGui, current, onChange)
     hg.Color = ColorSequence.new(keys)
     hg.Parent = hueBar
 
-    -- static rainbow strip preview
     local staticStrip = Instance.new("Frame")
     staticStrip.Size = UDim2.new(0, 200, 0, 10)
     staticStrip.Position = UDim2.new(0, 10, 0, 154)
@@ -260,8 +344,6 @@ local function openColorPicker(parentGui, current, onChange)
         if mode == "Rainbow" then
             c = Color3.fromHSV((tick() * 0.2) % 1, 0.9, 1)
         elseif mode == "StaticRainbow" then
-            c = Color3.fromHSV(0.75, 0.85, 1) -- fixed non-animated rainbow sample (magenta-side)
-            -- use a blended static rainbow-ish magenta-cyan
             c = Color3.fromRGB(255, 40, 180)
         else
             c = Color3.fromHSV(h, s, v)
@@ -344,7 +426,6 @@ local function openColorPicker(parentGui, current, onChange)
         popup:Destroy()
     end)
 
-    -- live rainbow preview while mode active
     task.spawn(function()
         while popup.Parent do
             if mode == "Rainbow" then emit() end
@@ -353,7 +434,7 @@ local function openColorPicker(parentGui, current, onChange)
     end)
 end
 
-function UI.Init(Silent, ESP, Anti, Perf)
+function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
     local Library = loadstring(game:HttpGet(
         "https://raw.githubusercontent.com/K01dBy4spam935h/Flick_LarpSec/main/src/library.lua"
     ))()
@@ -365,7 +446,7 @@ function UI.Init(Silent, ESP, Anti, Perf)
 
     local Window = Lib:CreateWindow({
         Title = "LarpSec - Flick v1",
-        Size = Vector2.new(600, 520),
+        Size = Vector2.new(620, 540),
     })
 
     local function guiRoot()
@@ -374,6 +455,183 @@ function UI.Init(Silent, ESP, Anti, Perf)
 
     local currentTheme = "Default"
     local currentUIFont = "Gotham"
+
+    -- ── Main ────────────────────────────────────────────────
+    local TabMain = Window:CreateTab("Main")
+    local GBServer = TabMain:CreateGroupbox("Server", "Left")
+    local GBAnti = TabMain:CreateGroupbox("Anti-Cheat", "Right")
+    local GBPlayers = TabMain:CreateGroupbox("Players", "Left")
+
+    local executorName = getExecutorName()
+    GBServer:AddLabel("Executor: " .. executorName)
+    GBServer:AddLabel("JobId: " .. tostring(game.JobId))
+    local playersLabel = GBServer:AddLabel("Players: " .. tostring(#Players:GetPlayers()))
+    local pingLabel = GBServer:AddLabel("Latency: -- ms")
+
+    local statusLabel = GBAnti:AddLabel("Status: checking...")
+    local function setStatusVisual(status)
+        local text = "Status: " .. status
+        if status == "bypassed" then
+            text = "Status: BYPASSED"
+        elseif status == "detected" then
+            text = "Status: DETECTED"
+        else
+            text = "Status: ISSUE"
+        end
+        -- labels may not support color; text is enough
+        pcall(function()
+            if statusLabel and statusLabel.Set then statusLabel:Set(text) end
+        end)
+        -- try find text label under groupbox
+        pcall(function()
+            for _, d in ipairs(Window.Frame:GetDescendants()) do
+                if d:IsA("TextLabel") and d.Text:find("Status:") then
+                    d.Text = text
+                    if status == "bypassed" then
+                        d.TextColor3 = Color3.fromRGB(80, 255, 120)
+                    elseif status == "detected" then
+                        d.TextColor3 = Color3.fromRGB(255, 70, 70)
+                    else
+                        d.TextColor3 = Color3.fromRGB(255, 170, 60)
+                    end
+                end
+            end
+        end)
+    end
+
+    task.defer(function()
+        task.wait(2.5)
+        setStatusVisual(Anti.GetStatus and Anti.GetStatus() or (Anti.IsBypassed and Anti.IsBypassed() and "bypassed" or "issue"))
+    end)
+
+    GBAnti:AddDropdown({
+        Text = "Auto Resolve",
+        Values = {"Run"},
+        Default = "Run",
+        Callback = function()
+            local st = "issue"
+            pcall(function()
+                if Anti.Resolve then st = Anti.Resolve() else Anti.Init() st = Anti.GetStatus and Anti.GetStatus() or "issue" end
+            end)
+            setStatusVisual(st)
+        end,
+    })
+
+    -- player list dropdown (names only in lib dropdown; avatars in side panel)
+    local function playerNames()
+        local list = {}
+        for _, p in ipairs(Players:GetPlayers()) do
+            table.insert(list, string.format("%s (%s)", p.DisplayName, p.Name))
+        end
+        table.sort(list)
+        if #list == 0 then list = { "none" } end
+        return list
+    end
+
+    GBPlayers:AddDropdown({
+        Text = "Player List",
+        Values = playerNames(),
+        Default = playerNames()[1],
+        Callback = function() end,
+    })
+
+    -- avatar strip under main (custom frame)
+    task.defer(function()
+        local root = Window.Frame
+        if not root then return end
+        local strip = Instance.new("ScrollingFrame")
+        strip.Name = "PlayerStrip"
+        strip.Size = UDim2.new(1, -20, 0, 72)
+        strip.Position = UDim2.new(0, 10, 1, -80)
+        strip.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
+        strip.BackgroundTransparency = 0.3
+        strip.BorderSizePixel = 0
+        strip.ScrollBarThickness = 4
+        strip.CanvasSize = UDim2.new(0, 0, 0, 0)
+        strip.ZIndex = 5
+        strip.Parent = root
+        Instance.new("UICorner", strip).CornerRadius = UDim.new(0, 4)
+        local lay = Instance.new("UIListLayout")
+        lay.FillDirection = Enum.FillDirection.Horizontal
+        lay.Padding = UDim.new(0, 6)
+        lay.Parent = strip
+        local pad = Instance.new("UIPadding")
+        pad.PaddingLeft = UDim.new(0, 6)
+        pad.PaddingTop = UDim.new(0, 6)
+        pad.Parent = strip
+
+        local function refreshStrip()
+            for _, c in ipairs(strip:GetChildren()) do
+                if c:IsA("Frame") then c:Destroy() end
+            end
+            local x = 0
+            for _, p in ipairs(Players:GetPlayers()) do
+                local cell = Instance.new("Frame")
+                cell.Size = UDim2.new(0, 56, 0, 58)
+                cell.BackgroundTransparency = 1
+                cell.Parent = strip
+                local img = Instance.new("ImageLabel")
+                img.Size = UDim2.new(0, 40, 0, 40)
+                img.Position = UDim2.new(0.5, -20, 0, 0)
+                img.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
+                img.BorderSizePixel = 0
+                img.Parent = cell
+                Instance.new("UICorner", img).CornerRadius = UDim.new(1, 0)
+                pcall(function()
+                    img.Image = Players:GetUserThumbnailAsync(
+                        p.UserId,
+                        Enum.ThumbnailType.HeadShot,
+                        Enum.ThumbnailSize.Size48x48
+                    )
+                end)
+                local nm = Instance.new("TextLabel")
+                nm.Size = UDim2.new(1, 0, 0, 14)
+                nm.Position = UDim2.new(0, 0, 0, 42)
+                nm.BackgroundTransparency = 1
+                nm.Text = p.DisplayName
+                nm.TextColor3 = Color3.fromRGB(220, 220, 230)
+                nm.TextSize = 9
+                nm.Font = Enum.Font.Gotham
+                nm.TextTruncate = Enum.TextTruncate.AtEnd
+                nm.Parent = cell
+                x = x + 62
+            end
+            strip.CanvasSize = UDim2.new(0, math.max(x, 100), 0, 0)
+            pcall(function()
+                if type(playersLabel) == "table" and playersLabel.Set then
+                    playersLabel:Set("Players: " .. tostring(#Players:GetPlayers()))
+                end
+                for _, d in ipairs(root:GetDescendants()) do
+                    if d:IsA("TextLabel") and d.Text:find("Players:") then
+                        d.Text = "Players: " .. tostring(#Players:GetPlayers())
+                    end
+                end
+            end)
+        end
+        refreshStrip()
+        Players.PlayerAdded:Connect(function() task.defer(refreshStrip) end)
+        Players.PlayerRemoving:Connect(function() task.defer(refreshStrip) end)
+
+        task.spawn(function()
+            while root.Parent do
+                local ping = 0
+                pcall(function()
+                    ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
+                end)
+                pcall(function()
+                    for _, d in ipairs(root:GetDescendants()) do
+                        if d:IsA("TextLabel") and d.Text:find("Latency:") then
+                            d.Text = "Latency: " .. tostring(ping) .. " ms"
+                        end
+                        if d:IsA("TextLabel") and d.Text:find("Status:") then
+                            -- leave color; refresh status text periodically
+                        end
+                    end
+                end)
+                task.wait(1)
+            end
+        end)
+    end)
 
     -- ── Combat ──────────────────────────────────────────────
     local TabCombat = Window:CreateTab("Combat")
@@ -401,17 +659,27 @@ function UI.Init(Silent, ESP, Anti, Perf)
         Default = "Open",
         Callback = function()
             local g = guiRoot()
-            if not g then return end
-            openColorPicker(g, Silent.Config.FOVColor, function(c, mode)
-                Silent.Config.FOVColor = c
-            end)
+            if g then openColorPicker(g, Silent.Config.FOVColor, function(c) Silent.Config.FOVColor = c end) end
         end,
     })
 
     GBBot:AddToggle({Text = "Triggerbot", Default = Silent.Config.Triggerbot, Callback = function(v) Silent.Config.Triggerbot = v end})
-    GBBot:AddLabel("fires when crosshair hits")
     GBBot:AddToggle({Text = "Auto Shoot", Default = Silent.Config.AutoShoot, Callback = function(v) Silent.Config.AutoShoot = v end})
-    GBBot:AddLabel("spam-clicks FOV targets")
+
+    -- kill sound from user config
+    if Config then
+        local names = Config.GetKillSoundNames()
+        local sel = Config.Get().selectedKillSound
+        if not sel or sel == "" then sel = "Off" end
+        GBBot:AddDropdown({
+            Text = "Kill Sound",
+            Values = names,
+            Default = sel,
+            Callback = function(name)
+                Config.SetSelectedKillSound(name)
+            end,
+        })
+    end
 
     -- ── Visuals ─────────────────────────────────────────────
     local TabVisuals = Window:CreateTab("Visuals")
@@ -468,7 +736,6 @@ function UI.Init(Silent, ESP, Anti, Perf)
         Callback = function(v) ESP.Config.TracerFrom = v end,
     })
     GBStyle:AddSlider({Text = "Max Distance", Min = 100, Max = 2000, Default = ESP.Config.MaxDistance, Suffix = "m", Callback = function(v) ESP.Config.MaxDistance = v end})
-
     GBStyle:AddDropdown({
         Text = "Box/Tracer Color",
         Values = {"Open Picker"},
@@ -520,10 +787,7 @@ function UI.Init(Silent, ESP, Anti, Perf)
     GBPerf:AddToggle({Text = "Hide Shadows", Default = false, Callback = function(v) Perf.Config.HideShadows = v Perf.Refresh() end})
     GBPerf:AddToggle({Text = "Hide Particles", Default = false, Callback = function(v) Perf.Config.HideParticles = v Perf.Refresh() end})
     GBPerf:AddToggle({Text = "Optimize VFX", Default = false, Callback = function(v) Perf.Config.OptimizeVFX = v Perf.Refresh() end})
-
     GBCull:AddToggle({Text = "Culling", Default = false, Callback = function(v) Perf.Config.Culling = v Perf.Refresh() end})
-    GBCull:AddLabel("hides unnecessary clutter")
-    GBCull:AddLabel("shadows · particles · VFX")
 
     -- ── Config ──────────────────────────────────────────────
     local TabConfig = Window:CreateTab("Config")
@@ -548,29 +812,37 @@ function UI.Init(Silent, ESP, Anti, Perf)
             applyTheme(Window, currentTheme, name)
         end,
     })
-    GBFont:AddLabel("RightShift · menu")
-    GBFont:AddLabel("Title bar · drag")
 
     -- ── Beta ────────────────────────────────────────────────
     local TabBeta = Window:CreateTab("Beta")
     local GBBeta = TabBeta:CreateGroupbox("Experimental", "Left")
     GBBeta:AddToggle({Text = "No Reload", Default = Silent.Config.NoReload, Callback = function(v) Silent.Config.NoReload = v end})
-    GBBeta:AddLabel("zeros reloadTime on config")
-    GBBeta:AddLabel("table — unstable after death")
 
     -- ── Info ────────────────────────────────────────────────
     local TabInfo = Window:CreateTab("Info")
-    local GBInfo = TabInfo:CreateGroupbox("Status", "Left")
+    local GBInfo = TabInfo:CreateGroupbox("Features", "Left")
     local GBNoRel = TabInfo:CreateGroupbox("No Reload", "Right")
+    local GBCtl = TabInfo:CreateGroupbox("Controls", "Left")
+    local GBSnd = TabInfo:CreateGroupbox("Kill Sounds", "Right")
 
     GBInfo:AddLabel("LarpSec - Flick v1")
-    GBInfo:AddLabel("Adonis bypass active")
-    GBInfo:AddLabel("Silent · Trigger · AutoShoot")
+    GBInfo:AddLabel("Triggerbot: crosshair hit")
+    GBInfo:AddLabel("AutoShoot: FOV + visible")
+    GBInfo:AddLabel("Culling: clutter/shadows/VFX")
+    GBInfo:AddLabel("Chams: Highlight fill+outline")
 
     GBNoRel:AddLabel("Status: experimental")
     GBNoRel:AddLabel("Lever: config reloadTime")
     GBNoRel:AddLabel("Not proven live timer")
     GBNoRel:AddLabel("Respawn rebind flaky")
+
+    GBCtl:AddLabel("RightShift · menu")
+    GBCtl:AddLabel("Title bar · drag")
+
+    GBSnd:AddLabel("IDs live in your config")
+    GBSnd:AddLabel("getgenv LarpSecUserConfig")
+    GBSnd:AddLabel("or LarpSec_config.json")
+    GBSnd:AddLabel("No default sound shipped")
 
     Window.Frame.Visible = true
     applyTheme(Window, "Default", "Gotham")
