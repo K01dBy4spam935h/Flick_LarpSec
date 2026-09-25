@@ -181,18 +181,15 @@ function Anti.IsBypassed() return bypassed end
 function Anti.GetKickAttempts() return kickAttempts end
 
 -- "bypassed" | "issue" | "detected"
+-- kickAttempts alone is not proof of live detection (hooks may count probes)
 function Anti.GetStatus()
-    if kickAttempts > 0 then
-        return "detected"
-    end
     if bypassed then
         return "bypassed"
     end
-    -- partial / not verified yet
-    local hasDet = DetectedFunc ~= nil
-    if not hasDet then
+    if DetectedFunc == nil and KillFunc == nil then
         return "issue"
     end
+    -- closures found but verify not confirmed yet
     return "issue"
 end
 
@@ -202,10 +199,16 @@ function Anti.Resolve()
     pcall(hookKillDisconnect)
     pcall(neuterDetectors)
     pcall(protectKick)
-    bypassed = false
+    local ok = false
     pcall(function()
-        bypassed = verify()
+        ok = verify()
     end)
+    bypassed = ok and true or false
+    if bypassed then
+        print("Adonis Anti-Exploit Bypassed successfully")
+    else
+        print("Adonis Anti-Exploit: still resolving...")
+    end
     return Anti.GetStatus()
 end
 
