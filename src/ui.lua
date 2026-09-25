@@ -136,31 +136,23 @@ local function startAnimatedBackground(window, theme)
     local token = animToken
     local root = window.Frame
     if not root then return end
-    local bg = root:FindFirstChild("AnimBG")
-    if not bg then
-        bg = Instance.new("Frame")
-        bg.Name = "AnimBG"
-        bg.Size = UDim2.new(1, 0, 1, 0)
-        bg.BackgroundColor3 = Color3.new(1, 1, 1)
-        bg.BorderSizePixel = 0
-        bg.ZIndex = 0
-        bg.Parent = root
-        local g = Instance.new("UIGradient")
-        g.Name = "AnimGrad"
-        g.Parent = bg
+    -- gradient lives ON the window frame so it is actually visible
+    root.BackgroundColor3 = Color3.new(1, 1, 1)
+    local g = root:FindFirstChild("WindowGrad")
+    if not g then
+        g = Instance.new("UIGradient")
+        g.Name = "WindowGrad"
+        g.Parent = root
     end
-    bg.ZIndex = 0
-    local g = bg:FindFirstChild("AnimGrad")
-    if not g then return end
     g.Color = ColorSequence.new({
         ColorSequenceKeypoint.new(0, theme.AnimA),
-        ColorSequenceKeypoint.new(0.5, theme.GradB),
+        ColorSequenceKeypoint.new(0.5, theme.GradA),
         ColorSequenceKeypoint.new(1, theme.AnimB),
     })
     task.spawn(function()
         local rot = 0
-        while token == animToken and bg.Parent do
-            rot = (rot + 0.35) % 360
+        while token == animToken and root.Parent do
+            rot = (rot + 0.4) % 360
             g.Rotation = rot
             task.wait(0.03)
         end
@@ -172,8 +164,6 @@ local function applyTheme(window, themeName, fontName)
     pcall(function()
         local root = window.Frame
         if not root then return end
-        root.BackgroundColor3 = theme.Background
-        applyGradient(root, theme, 120)
         startAnimatedBackground(window, theme)
         for _, d in ipairs(root:GetDescendants()) do
             if d:IsA("Frame") then
@@ -468,15 +458,15 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
     local playersLabel = GBServer:AddLabel("Players: " .. tostring(#Players:GetPlayers()))
     local pingLabel = GBServer:AddLabel("Latency: -- ms")
 
-    local statusLabel = GBAnti:AddLabel("Status: checking...")
+    local statusLabel = GBAnti:AddLabel("AC: checking...")
     local function setStatusVisual(status)
-        local text = "Status: " .. status
+        local text = "AC: " .. status
         if status == "bypassed" then
-            text = "Status: BYPASSED"
+            text = "AC: BYPASSED"
         elseif status == "detected" then
-            text = "Status: DETECTED"
+            text = "AC: DETECTED"
         else
-            text = "Status: ISSUE"
+            text = "AC: ISSUE"
         end
         -- labels may not support color; text is enough
         pcall(function()
@@ -485,7 +475,7 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
         -- try find text label under groupbox
         pcall(function()
             for _, d in ipairs(Window.Frame:GetDescendants()) do
-                if d:IsA("TextLabel") and d.Text:find("Status:") then
+                if d:IsA("TextLabel") and d.Text:find("AC:") then
                     d.Text = text
                     if status == "bypassed" then
                         d.TextColor3 = Color3.fromRGB(80, 255, 120)
@@ -541,8 +531,8 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
         if not root then return end
         local strip = Instance.new("ScrollingFrame")
         strip.Name = "PlayerStrip"
-        strip.Size = UDim2.new(1, -20, 0, 72)
-        strip.Position = UDim2.new(0, 10, 1, -80)
+        strip.Size = UDim2.new(1, -20, 0, 84)
+        strip.Position = UDim2.new(0, 10, 1, -92)
         strip.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
         strip.BackgroundTransparency = 0.3
         strip.BorderSizePixel = 0
@@ -567,34 +557,31 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
             local x = 0
             for _, p in ipairs(Players:GetPlayers()) do
                 local cell = Instance.new("Frame")
-                cell.Size = UDim2.new(0, 56, 0, 58)
+                cell.Size = UDim2.new(0, 64, 0, 70)
                 cell.BackgroundTransparency = 1
                 cell.Parent = strip
                 local img = Instance.new("ImageLabel")
-                img.Size = UDim2.new(0, 40, 0, 40)
-                img.Position = UDim2.new(0.5, -20, 0, 0)
+                img.Size = UDim2.new(0, 44, 0, 44)
+                img.Position = UDim2.new(0.5, -22, 0, 2)
                 img.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
                 img.BorderSizePixel = 0
                 img.Parent = cell
                 Instance.new("UICorner", img).CornerRadius = UDim.new(1, 0)
-                pcall(function()
-                    img.Image = Players:GetUserThumbnailAsync(
-                        p.UserId,
-                        Enum.ThumbnailType.HeadShot,
-                        Enum.ThumbnailSize.Size48x48
-                    )
-                end)
+                img.Image = string.format(
+                    "rbxthumb://type=AvatarHeadShot&id=%d&w=48&h=48",
+                    p.UserId
+                )
                 local nm = Instance.new("TextLabel")
                 nm.Size = UDim2.new(1, 0, 0, 14)
-                nm.Position = UDim2.new(0, 0, 0, 42)
+                nm.Position = UDim2.new(0, 0, 0, 48)
                 nm.BackgroundTransparency = 1
                 nm.Text = p.DisplayName
                 nm.TextColor3 = Color3.fromRGB(220, 220, 230)
-                nm.TextSize = 9
+                nm.TextSize = 10
                 nm.Font = Enum.Font.Gotham
                 nm.TextTruncate = Enum.TextTruncate.AtEnd
                 nm.Parent = cell
-                x = x + 62
+                x = x + 70
             end
             strip.CanvasSize = UDim2.new(0, math.max(x, 100), 0, 0)
             pcall(function()
@@ -623,9 +610,9 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
                         if d:IsA("TextLabel") and d.Text:find("Latency:") then
                             d.Text = "Latency: " .. tostring(ping) .. " ms"
                         end
-                        if d:IsA("TextLabel") and d.Text:find("Status:") then
-                            -- leave color; refresh status text periodically
-                        end
+                    end
+                    if Anti and Anti.GetStatus then
+                        setStatusVisual(Anti.GetStatus())
                     end
                 end)
                 task.wait(1)
@@ -677,6 +664,16 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
             Default = sel,
             Callback = function(name)
                 Config.SetSelectedKillSound(name)
+            end,
+        })
+        GBBot:AddDropdown({
+            Text = "Preview Sound",
+            Values = {"Play"},
+            Default = "Play",
+            Callback = function()
+                if KillSound and KillSound.Preview then
+                    KillSound.Preview()
+                end
             end,
         })
     end
