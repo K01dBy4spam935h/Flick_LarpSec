@@ -553,11 +553,25 @@ function Groupbox:AddSlider(opts)
     })
     Create("UIStroke", { Color = Theme.Border, Thickness = 1, Parent = track })
     local fill = Create("Frame", {
+        Name = "SliderFill",
         Size = UDim2.new((value - min) / math.max(max - min, 1), 0, 1, 0),
         BackgroundColor3 = Theme.Accent,
         BorderSizePixel = 0,
         Parent = track,
     })
+    do
+        local g = Instance.new("UIGradient")
+        g.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Theme.Accent),
+            ColorSequenceKeypoint.new(1, Color3.new(
+                math.min(1, Theme.Accent.R + 0.2),
+                math.min(1, Theme.Accent.G + 0.2),
+                math.min(1, Theme.Accent.B + 0.15)
+            )),
+        })
+        g.Rotation = 0
+        g.Parent = fill
+    end
 
     local dragging = false
     local function update(inputX)
