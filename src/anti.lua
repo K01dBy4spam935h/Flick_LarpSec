@@ -180,4 +180,33 @@ end
 function Anti.IsBypassed() return bypassed end
 function Anti.GetKickAttempts() return kickAttempts end
 
+-- "bypassed" | "issue" | "detected"
+function Anti.GetStatus()
+    if kickAttempts > 0 then
+        return "detected"
+    end
+    if bypassed then
+        return "bypassed"
+    end
+    -- partial / not verified yet
+    local hasDet = DetectedFunc ~= nil
+    if not hasDet then
+        return "issue"
+    end
+    return "issue"
+end
+
+function Anti.Resolve()
+    pcall(findClosures)
+    pcall(hookDetected)
+    pcall(hookKillDisconnect)
+    pcall(neuterDetectors)
+    pcall(protectKick)
+    bypassed = false
+    pcall(function()
+        bypassed = verify()
+    end)
+    return Anti.GetStatus()
+end
+
 return Anti
