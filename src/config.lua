@@ -52,14 +52,12 @@ local DEFAULT_MUSIC = {
 
 -- per-song cutoff in seconds (only that song). 0 / missing = play full length
 local DEFAULT_MUSIC_CUTOFFS = {
-    -- ["Drift Night Phonk"] = 42.5,
     ["For My Girl"] = 81,
     ["Drunk And Honest"] = 119,
     ["Misery"] = 88,
 }
 
 local DEFAULT_IMAGES = {
-    -- ["Bg1"] = "123456789",
     ["Kanye West Funny"] = "5649884823",
     ["Dark Anime Girl"] = "6311243701",
     ["Hacker"] = "7167707594",
@@ -77,7 +75,7 @@ local data = {
     killSounds = {},
     deathSounds = {},
     music = {},
-    musicCutoffs = {}, -- [name] = number seconds
+    musicCutoffs = {},
     images = {},
     selectedKillSound = "",
     selectedDeathSound = "",
@@ -153,13 +151,11 @@ local function namesFrom(map)
 end
 
 function Config.Get() return data end
-
 function Config.GetKillSoundNames() return namesFrom(data.killSounds) end
 function Config.GetDeathSoundNames() return namesFrom(data.deathSounds) end
 function Config.GetMusicNames() return namesFrom(data.music) end
 function Config.GetImageNames() return namesFrom(data.images) end
 
--- ordered playlist (alphabetical, Off excluded) for auto-advance
 function Config.GetMusicPlaylist()
     local list = {}
     for name, id in pairs(data.music) do
@@ -255,7 +251,7 @@ end
 
 function Config.SaveFile(extra)
     local packet = {
-        version = 2,
+        version = 3,
         killSounds = data.killSounds,
         deathSounds = data.deathSounds,
         music = data.music,
@@ -263,10 +259,8 @@ function Config.SaveFile(extra)
         images = data.images,
         selectedKillSound = data.selectedKillSound,
         selectedDeathSound = data.selectedDeathSound,
-        selectedMusic = data.selectedMusic,
+        -- music selection intentionally not saved
         selectedBackground = data.selectedBackground,
-        musicVolume = data.musicVolume,
-        musicAutoAdvance = data.musicAutoAdvance,
         features = extra or {},
     }
     local function walk(t)
@@ -326,10 +320,8 @@ function Config.LoadFile()
     end
     data.selectedKillSound = packet.selectedKillSound or data.selectedKillSound
     data.selectedDeathSound = packet.selectedDeathSound or data.selectedDeathSound
-    data.selectedMusic = packet.selectedMusic or data.selectedMusic
+    -- do not restore selectedMusic
     data.selectedBackground = packet.selectedBackground or data.selectedBackground
-    data.musicVolume = packet.musicVolume or data.musicVolume
-    if packet.musicAutoAdvance ~= nil then data.musicAutoAdvance = packet.musicAutoAdvance end
     local function walk(t)
         if type(t) ~= "table" then return t end
         local n = {}
