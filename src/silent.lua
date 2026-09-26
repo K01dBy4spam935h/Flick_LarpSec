@@ -86,14 +86,29 @@ local function CandidateParts(char)
 end
 
 local function GetClosest()
+    local mouse = UserInputService:GetMouseLocation()
+    local fov = Silent.Config.FOV
+
+    -- sticky: keep same player if still near crosshair
     if Silent.Config.Sticky and stickyTarget then
         local char = stickyTarget.Parent
         local hum = GetHum(char)
         if hum and hum.Health > 0 then
-            local sp, on = Camera:WorldToViewportPoint(stickyTarget.Position)
+            local anchor = GetPart(char, "HumanoidRootPart") or stickyTarget
+            local sp, on = Camera:WorldToViewportPoint(anchor.Position)
             if on then
-                local d = (Vector2.new(sp.X, sp.Y) - UserInputService:GetMouseLocation()).Magnitude
-                if d <= Silent.Config.FOV * 1.2 then
+                local d = (Vector2.new(sp.X, sp.Y) - mouse).Magnitude
+                if d <= fov * 1.25 then
+                    -- re-pick preferred part on same character
+                    for _, part in ipairs(CandidateParts(char)) do
+                        if Visible(part) then
+                            local psp, pon = Camera:WorldToViewportPoint(part.Position)
+                            if pon then
+                                stickyTarget = part
+                                return part
+                            end
+                        end
+                    end
                     return stickyTarget
                 end
             end
@@ -101,28 +116,51 @@ local function GetClosest()
         stickyTarget = nil
     end
 
-    local best, bestDist = nil, Silent.Config.FOV
-    local mouse = UserInputService:GetMouseLocation()
-
+    -- rank PLAYERS by crosshair distance (HRP/torso), then pick best part
+    local bestPart, bestPlayerDist = nil, fov
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr == LocalPlayer or not Alive(plr) then continue end
         local char = GetChar(plr)
+        local root = GetPart(char, "HumanoidRootPart")
+            or GetPart(char, "UpperTorso")
+            or GetPart(char, "Torso")
+        if not root then continue end
+        if not Visible(root) and Silent.Config.VisibleCheck then
+            -- still try if any candidate visible
+            local anyVis = false
+            for _, part in ipairs(CandidateParts(char)) do
+                if Visible(part) then anyVis = true break end
+            end
+            if not anyVis then continue end
+        end
+        local sp, on = Camera:WorldToViewportPoint(root.Position)
+        if not on then continue end
+        local pd = (Vector2.new(sp.X, sp.Y) - mouse).Magnitude
+        if pd >= bestPlayerDist then continue end
+
+        -- this player is closer to crosshair — pick preferred part
+        local partPick = nil
+        local partBest = 1e9
         for _, part in ipairs(CandidateParts(char)) do
             if not Visible(part) then continue end
-            local sp, on = Camera:WorldToViewportPoint(part.Position)
-            if not on then continue end
-            local d = (Vector2.new(sp.X, sp.Y) - mouse).Magnitude
-            if d < bestDist then
-                bestDist = d
-                best = part
+            local psp, pon = Camera:WorldToViewportPoint(part.Position)
+            if not pon then continue end
+            local dd = (Vector2.new(psp.X, psp.Y) - mouse).Magnitude
+            if dd < partBest then
+                partBest = dd
+                partPick = part
             end
+        end
+        if partPick then
+            bestPlayerDist = pd
+            bestPart = partPick
         end
     end
 
     if Silent.Config.Sticky then
-        stickyTarget = best
+        stickyTarget = bestPart
     end
-    return best
+    return bestPart
 end
 
 local function IsReloadTable(t)
