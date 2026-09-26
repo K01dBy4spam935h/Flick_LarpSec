@@ -274,7 +274,7 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
     local function guiRoot()
         return Lib.ScreenGui or game:GetService("CoreGui"):FindFirstChild("FlickLib")
     end
-    local currentTheme, currentUIFont = "Default", "Code"
+    local currentTheme, currentUIFont = "Default", "Fantasy"
 
     local function colorChooser(label, getCol, setCol)
         -- button that opens HSV canvas
@@ -442,39 +442,6 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
     GBWorld:AddSlider({Text = "Fog End", Min = 50, Max = 2000, Default = Perf.Config.FogEnd, Callback = function(v) Perf.Config.FogEnd = v Perf.Refresh() end})
     GBWorld:AddSlider({Text = "Stretch Res", Min = 10, Max = 20, Default = 10, Callback = function(v) Perf.Config.Stretch = v/10 end})
     GBWorld:AddToggle({Text = "Third Person", Default = false, Callback = function(v) Perf.SetThirdPerson(v) end})
-    if Config then
-        local bgDD = GBWorld:AddDropdown({
-            Text = "Background",
-            Values = Config.GetImageNames(),
-            Default = Config.Get().selectedBackground ~= "" and Config.Get().selectedBackground or "Off",
-            Callback = function(name)
-                Config.SetSelectedBackground(name)
-                if name == "Off" or not name then
-                    if Perf.SetUIBackground then Perf.SetUIBackground(nil) end
-                    if Perf.SetBackground then Perf.SetBackground(nil) end
-                    applyTheme(Window, currentTheme, currentUIFont)
-                else
-                    local id = Config.GetSelectedBackgroundId()
-                    if Perf.SetUIBackground then Perf.SetUIBackground(id) end
-                    -- stop gradient noise when image is set
-                    animToken = animToken + 1
-                    pcall(function()
-                        local root = Window.Frame
-                        if root then
-                            for _, d in ipairs(root:GetDescendants()) do
-                                if d.Name == "PanelGrad" or d.Name == "WindowGrad" then
-                                    d.Enabled = false
-                                end
-                            end
-                            local g = root:FindFirstChild("WindowGrad")
-                            if g then g.Enabled = false end
-                        end
-                    end)
-                end
-            end,
-        })
-        UI._bgDD = bgDD
-    end
     GBHud:AddToggle({Text = "Radar", Default = ESP.Config.Radar, Callback = function(v) ESP.Config.Radar = v end})
     GBHud:AddToggle({Text = "Arrows", Default = ESP.Config.Arrows, Callback = function(v) ESP.Config.Arrows = v end})
     GBHud:AddDropdown({Text = "Crosshair", Values = {"Default","Cross","Dot","Off"}, Default = "Default", Callback = function(v) Perf.SetCrosshair(v) end})
@@ -537,87 +504,150 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
         Callback = function(name) currentTheme = name applyTheme(Window, name, currentUIFont) end,
     })
     GBTheme:AddDropdown({
-        Text = "UI Font", Values = UI_FONTS, Default = "Code",
+        Text = "UI Font", Values = UI_FONTS, Default = "Fantasy",
         Callback = function(name) currentUIFont = name applyTheme(Window, currentTheme, name) end,
     })
 
-    GBSave:AddButton({
-        Text = "Save Config",
-        Callback = function()
-            -- deep-ish copy of live feature tables (includes toggles, sliders, colors)
-            local function copyCfg(src)
-                local n = {}
-                for k, v in pairs(src) do
-                    n[k] = v
-                end
-                return n
+    -- Background (UI window image)
+    if Config then
+        local function applyBg(name)
+            Config.SetSelectedBackground(name)
+            if name == "Off" or not name then
+                if Perf.ClearUIBackground then Perf.ClearUIBackground()
+                elseif Perf.SetUIBackground then Perf.SetUIBackground(nil) end
+                applyTheme(Window, currentTheme, currentUIFont)
+            else
+                Config.SetSelectedBackground(name)
+                local id = Config.GetSelectedBackgroundId()
+                animToken = animToken + 1
+                pcall(function()
+                    local root = Window.Frame
+                    if root then
+                        for _, d in ipairs(root:GetDescendants()) do
+                            if d.Name == "PanelGrad" or d.Name == "WindowGrad" then
+                                d.Enabled = false
+                            end
+                        end
+                    end
+                end)
+                if Perf.SetUIBackground then Perf.SetUIBackground(id) end
             end
-            local ok = Config.SaveFile({
-                silent = copyCfg(Silent.Config),
-                esp = copyCfg(ESP.Config),
-                perf = copyCfg(Perf.Config),
-                theme = currentTheme,
-                font = currentUIFont,
-            })
-            -- kill/death selection + asset libraries already written inside SaveFile
-            print(ok and "[LarpSec] config saved (features + kill/death sounds)" or "[LarpSec] save failed")
+        end
+        local bgDD = GBSave:AddDropdown({
+            Text = "Background Image",
+            Values = Config.GetImageNames(),
+            Default = Config.Get().selectedBackground ~= "" and Config.Get().selectedBackground or "Off",
+            Callback = applyBg,
+        })
+        UI._bgDD = bgDD
+    end
+
+    local profileNameBox = GBSave:AddInput({
+        Text = "Profile Name",
+        Placeholder = "my_setup",
+        Default = "default",
+    })
+    local profileDD
+    profileDD = GBSave:AddDropdown({
+        Text = "Profiles",
+        Values = Config.ListProfiles(),
+        Default = "default",
+        Callback = function(name)
+            profileNameBox.Set(profileNameBox, name)
+        end,
+    })
+    UI._profileDD = profileDD
+
+    local function snapshotFeatures()
+        local function copyCfg(src)
+            local n = {}
+            for k, v in pairs(src) do n[k] = v end
+            return n
+        end
+        return {
+            silent = copyCfg(Silent.Config),
+            esp = copyCfg(ESP.Config),
+            perf = copyCfg(Perf.Config),
+            theme = currentTheme,
+            font = currentUIFont,
+        }
+    end
+
+    local function applyFeatures(feat)
+        if not feat then return end
+        if type(feat.silent) == "table" then
+            for k, v in pairs(feat.silent) do Silent.Config[k] = v end
+        end
+        if type(feat.esp) == "table" then
+            for k, v in pairs(feat.esp) do ESP.Config[k] = v end
+        end
+        if type(feat.perf) == "table" then
+            for k, v in pairs(feat.perf) do Perf.Config[k] = v end
+            pcall(function() if Perf.Refresh then Perf.Refresh() end end)
+        end
+        if feat.theme or feat.font then
+            currentTheme = feat.theme or currentTheme
+            currentUIFont = feat.font or currentUIFont
+            applyTheme(Window, currentTheme, currentUIFont)
+        end
+        if UI._killDD then
+            UI._killDD.SetValues(UI._killDD, Config.GetKillSoundNames())
+            local sel = Config.Get().selectedKillSound
+            if sel and sel ~= "" then UI._killDD.Set(UI._killDD, sel) end
+        end
+        if UI._deathDD then
+            UI._deathDD.SetValues(UI._deathDD, Config.GetDeathSoundNames())
+            local sel = Config.Get().selectedDeathSound
+            if sel and sel ~= "" then UI._deathDD.Set(UI._deathDD, sel) end
+        end
+        if UI._musicDD then
+            UI._musicDD.SetValues(UI._musicDD, Config.GetMusicNames())
+        end
+        if UI._bgDD then
+            UI._bgDD.SetValues(UI._bgDD, Config.GetImageNames())
+            local sel = Config.Get().selectedBackground
+            if sel and sel ~= "" then
+                UI._bgDD.Set(UI._bgDD, sel)
+                local id = Config.GetSelectedBackgroundId()
+                if id and Perf.SetUIBackground then Perf.SetUIBackground(id) end
+            end
+        end
+        if UI._profileDD then
+            UI._profileDD.SetValues(UI._profileDD, Config.ListProfiles())
+        end
+    end
+
+    GBSave:AddButton({
+        Text = "Save Profile",
+        Callback = function()
+            local name = profileNameBox.Get()
+            local ok = Config.SaveProfile(name, snapshotFeatures())
+            if UI._profileDD then UI._profileDD.SetValues(UI._profileDD, Config.ListProfiles()) end
+            print(ok and ("[LarpSec] saved profile: " .. tostring(name)) or "[LarpSec] save failed")
         end,
     })
     GBSave:AddButton({
-        Text = "Load Config",
+        Text = "Load Profile",
         Callback = function()
-            local feat = Config.LoadFile()
-            if not feat then print("[LarpSec] no save found") return end
-
-            if type(feat.silent) == "table" then
-                for k, v in pairs(feat.silent) do Silent.Config[k] = v end
-            end
-            if type(feat.esp) == "table" then
-                for k, v in pairs(feat.esp) do ESP.Config[k] = v end
-            end
-            if type(feat.perf) == "table" then
-                for k, v in pairs(feat.perf) do Perf.Config[k] = v end
-                pcall(function() if Perf.Refresh then Perf.Refresh() end end)
-            end
-            if feat.theme then
-                currentTheme = feat.theme
-                currentUIFont = feat.font or currentUIFont
-                applyTheme(Window, currentTheme, currentUIFont)
-            elseif feat.font then
-                currentUIFont = feat.font
-                applyTheme(Window, currentTheme, currentUIFont)
-            end
-
-            -- refresh asset dropdown lists
-            if UI._killDD then
-                UI._killDD.SetValues(UI._killDD, Config.GetKillSoundNames())
-                local sel = Config.Get().selectedKillSound
-                if sel and sel ~= "" then UI._killDD.Set(UI._killDD, sel) end
-            end
-            if UI._deathDD then
-                UI._deathDD.SetValues(UI._deathDD, Config.GetDeathSoundNames())
-                local sel = Config.Get().selectedDeathSound
-                if sel and sel ~= "" then UI._deathDD.Set(UI._deathDD, sel) end
-            end
-            -- music selection not restored
-            if UI._musicDD then
-                UI._musicDD.SetValues(UI._musicDD, Config.GetMusicNames())
-            end
-            if UI._bgDD then
-                UI._bgDD.SetValues(UI._bgDD, Config.GetImageNames())
-                local sel = Config.Get().selectedBackground
-                if sel and sel ~= "" then
-                    UI._bgDD.Set(UI._bgDD, sel)
-                    local id = Config.GetSelectedBackgroundId()
-                    if id and Perf.SetUIBackground then Perf.SetUIBackground(id) end
-                end
-            end
-
-            print("[LarpSec] config loaded (features + kill/death; music skipped)")
+            local name = profileNameBox.Get()
+            local feat = Config.LoadProfile(name)
+            if not feat then print("[LarpSec] profile not found: " .. tostring(name)) return end
+            applyFeatures(feat)
+            print("[LarpSec] loaded profile: " .. tostring(name))
+        end,
+    })
+    GBSave:AddButton({
+        Text = "Delete Profile",
+        Callback = function()
+            local name = profileNameBox.Get()
+            if name == "default" then print("[LarpSec] cannot delete default") return end
+            Config.DeleteProfile(name)
+            if UI._profileDD then UI._profileDD.SetValues(UI._profileDD, Config.ListProfiles()) end
+            print("[LarpSec] deleted:", name)
         end,
     })
 
-    local addType = "Kill"
+local addType = "Kill"
     local nameIn, idIn
     GBAdd:AddDropdown({
         Text = "Asset Type",
@@ -676,7 +706,7 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
     GBSnd:AddLabel("Images: rbxassetid + thumb fallback")
 
     Window.Frame.Visible = true
-    applyTheme(Window, "Default", "Code")
+    applyTheme(Window, "Default", "Fantasy")
 end
 
 return UI
