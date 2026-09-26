@@ -25,6 +25,10 @@ local KillSound = fetch("killsound.lua")
 local UI        = fetch("ui.lua")
 
 KillSound.Init(Config)
+Silent.OnKillFeedback = function() KillSound.Play() end
+pcall(function()
+    (getgenv and getgenv() or _G).LarpSecKillSound = KillSound
+end)
 
 task.spawn(function()
     task.wait(0.9)
