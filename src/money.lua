@@ -1,7 +1,6 @@
 --[[
     LarpSec · Money (Beta)
-    Client visual spoof + remote scan/attempt for spendable paths
-    True spendable cash only works if the game trusts a client remote.
+    Claim/reward remote attempts + client visual spoof
 ]]
 
 local Players = game:GetService("Players")
@@ -16,12 +15,23 @@ Money.Config = {
 }
 
 local hookedStats = {}
-local scanCache = {}
+
+-- only fire these (might grant currency if server is loose)
+local CLAIM_KEYS = {
+    "claim", "reward", "daily", "quest", "challenge", "time reward",
+    "group reward", "ad", "bonus", "gift", "collect",
+}
+
+-- never fire these (spend / open purchase)
+local SKIP_KEYS = {
+    "purchase", "prompt", "bundle", "store", "buy", "intent",
+    "gem", "limited", "product", "marketplace",
+}
 
 local function findMoneyValue()
     local ls = LocalPlayer:FindFirstChild("leaderstats")
     if ls then
-        for _, name in ipairs({"Cash", "Money", "Coins", "Currency", "Gold", "Credits"}) do
+        for _, name in ipairs({"Cash", "Money", "Coins", "Currency", "Gold", "Credits", "Gems"}) do
             local v = ls:FindFirstChild(name)
             if v and (v:IsA("IntValue") or v:IsA("NumberValue")) then
                 return v
@@ -30,17 +40,16 @@ local function findMoneyValue()
         for _, c in ipairs(ls:GetChildren()) do
             if c:IsA("IntValue") or c:IsA("NumberValue") then
                 local n = string.lower(c.Name)
-                if n:find("cash") or n:find("money") or n:find("coin") then
+                if n:find("cash") or n:find("money") or n:find("coin") or n:find("gem") then
                     return c
                 end
             end
         end
     end
-    -- deeper scan under player
     for _, c in ipairs(LocalPlayer:GetDescendants()) do
-        if (c:IsA("IntValue") or c:IsA("NumberValue")) then
+        if c:IsA("IntValue") or c:IsA("NumberValue") then
             local n = string.lower(c.Name)
-            if n:find("cash") or n:find("money") or n:find("coin") or n:find("currency") then
+            if n:find("cash") or n:find("money") or n:find("coin") or n:find("currency") or n:find("gem") then
                 return c
             end
         end
@@ -51,10 +60,7 @@ end
 local function clientSpoof(amount)
     local v = findMoneyValue()
     if not v then return false, "no money value found" end
-    pcall(function()
-        v.Value = amount
-    end)
-    -- keep forcing while enabled (server may overwrite)
+    pcall(function() v.Value = amount end)
     if not hookedStats[v] then
         hookedStats[v] = true
         v:GetPropertyChangedSignal("Value"):Connect(function()
@@ -65,61 +71,72 @@ local function clientSpoof(amount)
             end
         end)
     end
-    return true, v:GetFullName()
+    return true, v:GetFullName() .. " = " .. tostring(v.Value)
 end
 
-local MONEY_NAME_KEYS = {
-    "cash", "money", "coin", "currency", "gold", "credit", "earn", "reward", "payout", "purchase", "buy", "shop",
-}
-
-local function remoteLooksMonetary(r)
-    local n = string.lower(r.Name)
-    for _, k in ipairs(MONEY_NAME_KEYS) do
-        if n:find(k, 1, true) then return true end
-    end
+local function classify(r)
     local path = ""
     pcall(function() path = string.lower(r:GetFullName()) end)
-    for _, k in ipairs(MONEY_NAME_KEYS) do
-        if path:find(k, 1, true) then return true end
+    local n = string.lower(r.Name)
+    for _, k in ipairs(SKIP_KEYS) do
+        if n:find(k, 1, true) or path:find(k, 1, true) then
+            return "skip"
+        end
     end
-    return false
+    for _, k in ipairs(CLAIM_KEYS) do
+        if n:find(k, 1, true) or path:find(k, 1, true) then
+            return "claim"
+        end
+    end
+    return "other"
 end
 
 function Money.ScanRemotes()
-    scanCache = {}
+    local claims, skipped, other = {}, {}, {}
     local function walk(root)
+        if not root then return end
         for _, d in ipairs(root:GetDescendants()) do
             if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") then
-                if remoteLooksMonetary(d) then
-                    table.insert(scanCache, d)
+                local c = classify(d)
+                if c == "claim" then table.insert(claims, d)
+                elseif c == "skip" then table.insert(skipped, d)
                 end
             end
         end
     end
     pcall(function() walk(ReplicatedStorage) end)
     pcall(function() walk(LocalPlayer) end)
-    return scanCache
+    return claims, skipped
+end
+
+local function tryFire(r, amount)
+    local okCount = 0
+    if r:IsA("RemoteEvent") then
+        -- claim remotes usually take no amount — server decides
+        if pcall(function() r:FireServer() end) then okCount = okCount + 1 end
+        if pcall(function() r:FireServer(true) end) then okCount = okCount + 1 end
+        if pcall(function() r:FireServer(amount) end) then okCount = okCount + 1 end
+    elseif r:IsA("RemoteFunction") then
+        if pcall(function() r:InvokeServer() end) then okCount = okCount + 1 end
+        if pcall(function() r:InvokeServer(amount) end) then okCount = okCount + 1 end
+    end
+    return okCount
 end
 
 function Money.AttemptRemote(amount)
     amount = tonumber(amount) or Money.Config.Amount
-    local remotes = Money.ScanRemotes()
-    local fired = 0
-    for _, r in ipairs(remotes) do
-        pcall(function()
-            if r:IsA("RemoteEvent") then
-                -- try a few common arg shapes
-                r:FireServer(amount)
-                r:FireServer(LocalPlayer, amount)
-                r:FireServer({ Amount = amount, amount = amount, Value = amount })
-                fired = fired + 1
-            elseif r:IsA("RemoteFunction") then
-                r:InvokeServer(amount)
-                fired = fired + 1
-            end
-        end)
+    local claims, skipped = Money.ScanRemotes()
+    print("[Money] claim/reward remotes:", #claims, "| skipped purchases:", #skipped)
+    for _, r in ipairs(skipped) do
+        print("[Money] skip", r:GetFullName())
     end
-    return fired, remotes
+    local fired = 0
+    for _, r in ipairs(claims) do
+        local n = tryFire(r, amount)
+        fired = fired + n
+        print("[Money] claim", r:GetFullName(), "fires=", n)
+    end
+    return fired, claims
 end
 
 function Money.Apply()
@@ -127,19 +144,16 @@ function Money.Apply()
     if Money.Config.Mode == "Client" then
         local ok, info = clientSpoof(Money.Config.Amount)
         print("[Money] client spoof", ok, info)
+        print("[Money] note: visual only — server balance unchanged")
     else
-        local n, list = Money.AttemptRemote(Money.Config.Amount)
-        print("[Money] remote attempts", n)
-        for _, r in ipairs(list) do
-            print("[Money] remote", r:GetFullName())
-        end
-        -- also client spoof for UI feedback
-        clientSpoof(Money.Config.Amount)
+        Money.AttemptRemote(Money.Config.Amount)
+        local ok, info = clientSpoof(Money.Config.Amount)
+        print("[Money] client overlay", ok, info)
+        print("[Money] if balance didn't rise, claims are server-gated (eligible only)")
     end
 end
 
 function Money.Init()
-    -- nothing continuous unless enabled
 end
 
 return Money
