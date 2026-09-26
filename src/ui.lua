@@ -620,55 +620,7 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
     GBExp:AddToggle({
         Text = "No Reload", Default = Silent.Config.NoReload, Callback = function(v) Silent.Config.NoReload = v end,
     })
-    local GBMoney = TabBeta:CreateGroupbox("Money Spoof", "Right")
-    local Money = nil
-    pcall(function()
-        Money = rawget(getgenv and getgenv() or _G, "LarpSecMoney")
-    end)
-    if not Money then
-        pcall(function()
-            Money = loadstring(game:HttpGet(
-                "https://raw.githubusercontent.com/K01dBy4spam935h/Flick_LarpSec/main/src/money.lua"
-            ))()
-            Money.Init()
-            pcall(function() (getgenv and getgenv() or _G).LarpSecMoney = Money end)
-        end)
-    end
-    if Money then
-        GBMoney:AddToggle({
-            Text = "Enabled",
-            Default = false,
-            Callback = function(v)
-                Money.Config.Enabled = v
-                if v then Money.Apply() end
-            end,
-        })
-        GBMoney:AddSlider({
-            Text = "Amount",
-            Min = 0,
-            Max = 10000000,
-            Default = 999999,
-            Callback = function(v) Money.Config.Amount = v end,
-        })
-        GBMoney:AddDropdown({
-            Text = "Mode",
-            Values = {"Client", "RemoteScan"},
-            Default = "Client",
-            Callback = function(v) Money.Config.Mode = v end,
-        })
-        GBMoney:AddButton({
-            Text = "Apply / Scan",
-            Callback = function()
-                Money.Config.Enabled = true
-                Money.Apply()
-            end,
-        })
-        GBMoney:AddLabel("Client = visual only")
-        GBMoney:AddLabel("RemoteScan = try spend remotes")
-        GBMoney:AddLabel("Spendable needs server vuln")
-    else
-        GBMoney:AddLabel("money module missing")
-    end
+    
     local TabInfo = Window:CreateTab("Info")
     local GBInfo = TabInfo:CreateGroupbox("Features", "Left")
     local GBSnd = TabInfo:CreateGroupbox("Assets", "Right")
