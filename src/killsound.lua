@@ -313,15 +313,39 @@ function KillSound.Init(cfg)
     for _, p in ipairs(Players:GetPlayers()) do trackEnemy(p) end
     Players.PlayerAdded:Connect(trackEnemy)
 
+    local lastDeathPlay = 0
+    local function onLocalDeath()
+        if tick() - lastDeathPlay < 0.4 then return end
+        lastDeathPlay = tick()
+        KillSound.PlayDeath()
+    end
     local function trackSelf(char)
-        local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
+        local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 8)
         if not hum then return end
-        hum.Died:Connect(function()
-            KillSound.PlayDeath()
+        local lastH = hum.Health
+        hum.Died:Connect(onLocalDeath)
+        hum.HealthChanged:Connect(function(h)
+            if lastH > 0 and h <= 0 then
+                onLocalDeath()
+            end
+            lastH = h
+        end)
+        -- some games destroy character without firing Died cleanly
+        char.AncestryChanged:Connect(function(_, parent)
+            if parent == nil and lastH > 0 and lastH < (hum.MaxHealth or 100) then
+                -- died mid-life (not a clean leave)
+                if lastH <= 5 then onLocalDeath() end
+            end
         end)
     end
     if LocalPlayer.Character then task.spawn(trackSelf, LocalPlayer.Character) end
     LocalPlayer.CharacterAdded:Connect(function(c) task.spawn(trackSelf, c) end)
+    LocalPlayer.CharacterRemoving:Connect(function(c)
+        local hum = c:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health <= 0 then
+            onLocalDeath()
+        end
+    end)
 
     task.spawn(function()
         while true do
