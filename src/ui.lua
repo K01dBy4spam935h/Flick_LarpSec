@@ -268,6 +268,9 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
     ))()
     local Lib = Library.new({ Title = "LarpSec - Flick v1", ToggleKey = Enum.KeyCode.RightShift })
     local Window = Lib:CreateWindow({ Title = "LarpSec - Flick v1", Size = Vector2.new(620, 540) })
+    pcall(function()
+        if Perf.BindUIBackground then Perf.BindUIBackground(Window.Frame) end
+    end)
     local function guiRoot()
         return Lib.ScreenGui or game:GetService("CoreGui"):FindFirstChild("FlickLib")
     end
@@ -446,8 +449,28 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
             Default = Config.Get().selectedBackground ~= "" and Config.Get().selectedBackground or "Off",
             Callback = function(name)
                 Config.SetSelectedBackground(name)
-                if name == "Off" then Perf.SetBackground(nil)
-                else Perf.SetBackground(Config.GetSelectedBackgroundId()) end
+                if name == "Off" or not name then
+                    if Perf.SetUIBackground then Perf.SetUIBackground(nil) end
+                    if Perf.SetBackground then Perf.SetBackground(nil) end
+                    applyTheme(Window, currentTheme, currentUIFont)
+                else
+                    local id = Config.GetSelectedBackgroundId()
+                    if Perf.SetUIBackground then Perf.SetUIBackground(id) end
+                    -- stop gradient noise when image is set
+                    animToken = animToken + 1
+                    pcall(function()
+                        local root = Window.Frame
+                        if root then
+                            for _, d in ipairs(root:GetDescendants()) do
+                                if d.Name == "PanelGrad" or d.Name == "WindowGrad" then
+                                    d.Enabled = false
+                                end
+                            end
+                            local g = root:FindFirstChild("WindowGrad")
+                            if g then g.Enabled = false end
+                        end
+                    end)
+                end
             end,
         })
         UI._bgDD = bgDD
@@ -593,9 +616,59 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
 
     -- Beta / Info
     local TabBeta = Window:CreateTab("Beta")
-    TabBeta:CreateGroupbox("Experimental", "Left"):AddToggle({
+    local GBExp = TabBeta:CreateGroupbox("Experimental", "Left")
+    GBExp:AddToggle({
         Text = "No Reload", Default = Silent.Config.NoReload, Callback = function(v) Silent.Config.NoReload = v end,
     })
+    local GBMoney = TabBeta:CreateGroupbox("Money Spoof", "Right")
+    local Money = nil
+    pcall(function()
+        Money = rawget(getgenv and getgenv() or _G, "LarpSecMoney")
+    end)
+    if not Money then
+        pcall(function()
+            Money = loadstring(game:HttpGet(
+                "https://raw.githubusercontent.com/K01dBy4spam935h/Flick_LarpSec/main/src/money.lua"
+            ))()
+            Money.Init()
+            pcall(function() (getgenv and getgenv() or _G).LarpSecMoney = Money end)
+        end)
+    end
+    if Money then
+        GBMoney:AddToggle({
+            Text = "Enabled",
+            Default = false,
+            Callback = function(v)
+                Money.Config.Enabled = v
+                if v then Money.Apply() end
+            end,
+        })
+        GBMoney:AddSlider({
+            Text = "Amount",
+            Min = 0,
+            Max = 10000000,
+            Default = 999999,
+            Callback = function(v) Money.Config.Amount = v end,
+        })
+        GBMoney:AddDropdown({
+            Text = "Mode",
+            Values = {"Client", "RemoteScan"},
+            Default = "Client",
+            Callback = function(v) Money.Config.Mode = v end,
+        })
+        GBMoney:AddButton({
+            Text = "Apply / Scan",
+            Callback = function()
+                Money.Config.Enabled = true
+                Money.Apply()
+            end,
+        })
+        GBMoney:AddLabel("Client = visual only")
+        GBMoney:AddLabel("RemoteScan = try spend remotes")
+        GBMoney:AddLabel("Spendable needs server vuln")
+    else
+        GBMoney:AddLabel("money module missing")
+    end
     local TabInfo = Window:CreateTab("Info")
     local GBInfo = TabInfo:CreateGroupbox("Features", "Left")
     local GBSnd = TabInfo:CreateGroupbox("Assets", "Right")
