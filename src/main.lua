@@ -17,12 +17,9 @@ local Silent    = load("silent.lua")
 local ESP       = load("esp.lua")
 local Perf      = load("perf.lua")
 local KillSound = load("killsound.lua")
-local Money     = load("money.lua")
 local UI        = load("ui.lua")
 
 KillSound.Init(Config)
-Money.Init()
-pcall(function() (getgenv and getgenv() or _G).LarpSecMoney = Money end)
 Silent.OnKillFeedback = function() KillSound.Play() end
 
 Perf.Init()
