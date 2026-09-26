@@ -544,14 +544,23 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
     GBSave:AddButton({
         Text = "Save Config",
         Callback = function()
+            -- deep-ish copy of live feature tables (includes toggles, sliders, colors)
+            local function copyCfg(src)
+                local n = {}
+                for k, v in pairs(src) do
+                    n[k] = v
+                end
+                return n
+            end
             local ok = Config.SaveFile({
-                silent = Silent.Config,
-                esp = ESP.Config,
-                perf = Perf.Config,
+                silent = copyCfg(Silent.Config),
+                esp = copyCfg(ESP.Config),
+                perf = copyCfg(Perf.Config),
                 theme = currentTheme,
                 font = currentUIFont,
             })
-            print(ok and "[LarpSec] config saved" or "[LarpSec] save failed")
+            -- kill/death selection + asset libraries already written inside SaveFile
+            print(ok and "[LarpSec] config saved (features + kill/death sounds)" or "[LarpSec] save failed")
         end,
     })
     GBSave:AddButton({
@@ -559,17 +568,52 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
         Callback = function()
             local feat = Config.LoadFile()
             if not feat then print("[LarpSec] no save found") return end
-            if feat.silent then for k,v in pairs(feat.silent) do Silent.Config[k] = v end end
-            if feat.esp then for k,v in pairs(feat.esp) do ESP.Config[k] = v end end
-            if feat.perf then for k,v in pairs(feat.perf) do Perf.Config[k] = v end end
-            if feat.theme then currentTheme = feat.theme applyTheme(Window, currentTheme, feat.font or currentUIFont) end
-            if UI._killDD then UI._killDD.SetValues(UI._killDD, Config.GetKillSoundNames()) end
-            if UI._deathDD then UI._deathDD.SetValues(UI._deathDD, Config.GetDeathSoundNames()) end
-            if UI._musicDD then UI._musicDD.SetValues(UI._musicDD, Config.GetMusicNames()) end
-            if UI._bgDD then UI._bgDD.SetValues(UI._bgDD, Config.GetImageNames()) end
-            local bg = Config.GetSelectedBackgroundId()
-            if bg then Perf.SetBackground(bg) end
-            print("[LarpSec] config loaded")
+
+            if type(feat.silent) == "table" then
+                for k, v in pairs(feat.silent) do Silent.Config[k] = v end
+            end
+            if type(feat.esp) == "table" then
+                for k, v in pairs(feat.esp) do ESP.Config[k] = v end
+            end
+            if type(feat.perf) == "table" then
+                for k, v in pairs(feat.perf) do Perf.Config[k] = v end
+                pcall(function() if Perf.Refresh then Perf.Refresh() end end)
+            end
+            if feat.theme then
+                currentTheme = feat.theme
+                currentUIFont = feat.font or currentUIFont
+                applyTheme(Window, currentTheme, currentUIFont)
+            elseif feat.font then
+                currentUIFont = feat.font
+                applyTheme(Window, currentTheme, currentUIFont)
+            end
+
+            -- refresh asset dropdown lists
+            if UI._killDD then
+                UI._killDD.SetValues(UI._killDD, Config.GetKillSoundNames())
+                local sel = Config.Get().selectedKillSound
+                if sel and sel ~= "" then UI._killDD.Set(UI._killDD, sel) end
+            end
+            if UI._deathDD then
+                UI._deathDD.SetValues(UI._deathDD, Config.GetDeathSoundNames())
+                local sel = Config.Get().selectedDeathSound
+                if sel and sel ~= "" then UI._deathDD.Set(UI._deathDD, sel) end
+            end
+            -- music selection not restored
+            if UI._musicDD then
+                UI._musicDD.SetValues(UI._musicDD, Config.GetMusicNames())
+            end
+            if UI._bgDD then
+                UI._bgDD.SetValues(UI._bgDD, Config.GetImageNames())
+                local sel = Config.Get().selectedBackground
+                if sel and sel ~= "" then
+                    UI._bgDD.Set(UI._bgDD, sel)
+                    local id = Config.GetSelectedBackgroundId()
+                    if id and Perf.SetUIBackground then Perf.SetUIBackground(id) end
+                end
+            end
+
+            print("[LarpSec] config loaded (features + kill/death; music skipped)")
         end,
     })
 
