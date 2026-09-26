@@ -341,4 +341,49 @@ function Perf.Init()
     end)
 end
 
+
+local bgGui, bgImage
+
+function Perf.SetBackground(assetId)
+    if not assetId or assetId == "" or assetId == "Off" then
+        if bgGui then bgGui.Enabled = false end
+        return
+    end
+    if not bgGui then
+        local gui = Instance.new("ScreenGui")
+        gui.Name = "LarpSecBG"
+        gui.ResetOnSpawn = false
+        gui.IgnoreGuiInset = true
+        gui.DisplayOrder = -100
+        pcall(function() gui.Parent = game:GetService("CoreGui") end)
+        if not gui.Parent then
+            gui.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+        end
+        bgGui = gui
+        local img = Instance.new("ImageLabel")
+        img.Name = "BG"
+        img.Size = UDim2.new(1, 0, 1, 0)
+        img.BackgroundTransparency = 1
+        img.ScaleType = Enum.ScaleType.Crop
+        img.ZIndex = 0
+        img.Parent = gui
+        bgImage = img
+    end
+    bgGui.Enabled = true
+    local id = tostring(assetId)
+    local num = id:match("(%d+)")
+    if num then
+        -- try primary then fallbacks
+        bgImage.Image = "rbxassetid://" .. num
+        task.defer(function()
+            task.wait(0.5)
+            if bgImage and (bgImage.IsLoaded == false or bgImage.Image == "") then
+                bgImage.Image = "rbxthumb://type=Asset&id=" .. num .. "&w=768&h=432"
+            end
+        end)
+    else
+        bgImage.Image = id
+    end
+end
+
 return Perf
