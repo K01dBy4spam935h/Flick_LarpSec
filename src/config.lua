@@ -45,7 +45,7 @@ local DEFAULT_MUSIC = {
     ["Drunk And Honest"] = "rbxassetid://77185624204161",
     ["Misery"] = "rbxassetid://86317637164248",
     ["Terranova"] = "rbxassetid://82746224492420",
-    ["Rap"] = "rbxassetid://110128107517269",v
+    ["Rap"] = "rbxassetid://110128107517269",
     ["Just The Way You Are"] = "rbxassetid://99625682843508",
     ["For My Girl"] = "rbxassetid://71393805905055",
 }
