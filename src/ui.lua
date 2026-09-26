@@ -381,7 +381,10 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
             Text = "Music",
             Values = Config.GetMusicNames(),
             Default = Config.Get().selectedMusic ~= "" and Config.Get().selectedMusic or "Off",
-            Callback = function(name) Config.SetSelectedMusic(name) end,
+            Callback = function(name)
+                Config.SetSelectedMusic(name)
+                if UI._refreshCutoff then UI._refreshCutoff() end
+            end,
         })
         GBBot:AddSlider({
             Text = "Music Volume", Min = 0, Max = 100, Default = math.floor((Config.Get().musicVolume or 0.5)*100),
@@ -389,6 +392,39 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
         })
         GBBot:AddButton({ Text = "Play Music", Callback = function() if KillSound then KillSound.StartMusic() end end })
         GBBot:AddButton({ Text = "Stop Music", Callback = function() if KillSound then KillSound.StopMusic() end end })
+        GBBot:AddButton({ Text = "Next Track", Callback = function() if KillSound then KillSound.PlayNextMusic() end end })
+        GBBot:AddToggle({
+            Text = "Auto Advance",
+            Default = Config.Get().musicAutoAdvance ~= false,
+            Callback = function(v) Config.Get().musicAutoAdvance = v end,
+        })
+        -- per-song cutoff (seconds). 0 = full song for the SELECTED track only
+        local cutoffSlider
+        cutoffSlider = GBBot:AddSlider({
+            Text = "Song Cutoff (this track)",
+            Min = 0,
+            Max = 300,
+            Default = 0,
+            Suffix = "s",
+            Callback = function(v)
+                local name = Config.GetSelectedMusicName()
+                if name then Config.SetMusicCutoff(name, v) end
+            end,
+        })
+        -- when music selection changes, show that song's cutoff
+        local oldMusicCb = musicDD
+        -- refresh cutoff display when user picks a track
+        pcall(function()
+            -- re-hook: SetValues keeps callback; we wrap via selecting
+        end)
+        UI._cutoffSlider = cutoffSlider
+        UI._refreshCutoff = function()
+            local name = Config.GetSelectedMusicName()
+            local c = name and Config.GetMusicCutoff(name) or 0
+            if cutoffSlider and cutoffSlider.Set then
+                cutoffSlider:Set(c)
+            end
+        end
 
         -- store refs for refresh after add
         UI._killDD, UI._deathDD, UI._musicDD = killDD, deathDD, musicDD
