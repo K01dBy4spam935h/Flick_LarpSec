@@ -10,7 +10,26 @@ local BRANCH      = "main"
 local BASE = ("https://raw.githubusercontent.com/%s/%s/%s/src/"):format(GITHUB_USER, GITHUB_REPO, BRANCH)
 
 local function fetch(name)
-    return loadstring(game:HttpGet(BASE .. name))()
+    local url = BASE .. name
+    local src
+    local ok, err = pcall(function()
+        src = game:HttpGet(url)
+    end)
+    if not ok or not src or src == "" then
+        error("[LarpSec] HttpGet failed: " .. tostring(name) .. " " .. tostring(err))
+    end
+    local fn, compileErr = loadstring(src)
+    if not fn then
+        error("[LarpSec] compile failed: " .. tostring(name) .. "\n" .. tostring(compileErr))
+    end
+    local mod
+    ok, err = pcall(function()
+        mod = fn()
+    end)
+    if not ok then
+        error("[LarpSec] runtime failed: " .. tostring(name) .. "\n" .. tostring(err))
+    end
+    return mod
 end
 
 local Anti = fetch("anti.lua")
