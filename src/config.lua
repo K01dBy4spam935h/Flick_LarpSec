@@ -3,20 +3,56 @@
     Edit tables below OR add IDs in-UI (saved to LarpSec_save.json)
 ]]
 
--- ========== OPTIONAL DEFAULTS ==========
+-- ========== DEFAULTS ==========
 local DEFAULT_KILL = {
-    -- ["Cracked"] = "rbxassetid://123456789",
+    ["uwu"] = "rbxassetid://139219844119994",
+    ["oof"] = "rbxassetid://139019913635357",
+    ["Cracked"] = "rbxassetid://139933713042888",
+    ["MM2 - Gunshot"] = "rbxassetid://72486045176582",
+    ["MM2 - Knife"] = "rbxassetid://96761506644564",
+    ["Nani!?"] = "rbxassetid://77547270929945",
+    ["Fart"] = "rbxassetid://138132180123464",
+    ["Senpai"] = "rbxassetid://115498703521334",
+    ["Anime Cat Girl"] = "rbxassetid://104321578550512",
+    ["Android Notification"] = "rbxassetid://81041181328536",
 }
+
 local DEFAULT_DEATH = {
-    -- ["Oof"] = "rbxassetid://0",
+    ["oof"] = "rbxassetid://139019913635357",
+    ["Cracked"] = "rbxassetid://139933713042888",
+    ["Anime Girl Scream"] = "rbxassetid://91651003035814",
+    ["Nani!?"] = "rbxassetid://77547270929945",
+    ["Garry's Mod Death Sound"] = "rbxassetid://140153453307373",
+    ["Death Bang"] = "rbxassetid://139846745296940",
+    ["Fold Valley Death"] = "rbxassetid://123575028398063",
+    ["Uh Oh"] = "rbxassetid://123634096731592",
+    ["Snoring"] = "rbxassetid://110110344375165",
+    ["Fah!"] = "rbxassetid://138788420216035",
+    ["Fart"] = "rbxassetid://125967527987624",
+    ["Laugh"] = "rbxassetid://136931085501622",
+    ["Funny Sound"] = "rbxassetid://133467169655691",
+    ["Funny Scream"] = "rbxassetid://6999993863",
 }
+
 local DEFAULT_MUSIC = {
-    -- ["Track1"] = "rbxassetid://0",
+    ["Drift Night Phonk"] = "rbxassetid://85735197482652",
+    ["I love You So"] = "rbxassetid://100048144167699",
+    ["Low Cortisol"] = "rbxassetid://110919391228823",
+    ["Great Fairys Fountain"] = "rbxassetid://123076660184344",
+    ["Tick Tack"] = "rbxassetid://122708070570064",
+    ["Under Your Spell"] = "rbxassetid://91007045451630",
+    ["For My Girl"] = "rbxassetid://71393805905055",
 }
+
+-- per-song cutoff in seconds (only that song). 0 / missing = play full length
+local DEFAULT_MUSIC_CUTOFFS = {
+    -- ["Drift Night Phonk"] = 42.5,
+}
+
 local DEFAULT_IMAGES = {
-    -- ["Bg1"] = "123456789", -- raw numeric or rbxassetid:// both ok
+    -- ["Bg1"] = "123456789",
 }
--- ======================================
+-- ==============================
 
 local HttpService = game:GetService("HttpService")
 local Config = {}
@@ -25,6 +61,7 @@ local data = {
     killSounds = {},
     deathSounds = {},
     music = {},
+    musicCutoffs = {}, -- [name] = number seconds
     images = {},
     selectedKillSound = "",
     selectedDeathSound = "",
@@ -32,23 +69,16 @@ local data = {
     selectedBackground = "",
     musicVolume = 0.5,
     musicPlaying = false,
+    musicAutoAdvance = true,
 }
 
 for k, v in pairs(DEFAULT_KILL) do data.killSounds[k] = v end
 for k, v in pairs(DEFAULT_DEATH) do data.deathSounds[k] = v end
 for k, v in pairs(DEFAULT_MUSIC) do data.music[k] = v end
+for k, v in pairs(DEFAULT_MUSIC_CUTOFFS) do data.musicCutoffs[k] = v end
 for k, v in pairs(DEFAULT_IMAGES) do data.images[k] = v end
 
 local SAVE_FILE = "LarpSec_save.json"
-
-local function deepCopy(t)
-    if type(t) ~= "table" then return t end
-    local n = {}
-    for k, v in pairs(t) do
-        n[k] = deepCopy(v)
-    end
-    return n
-end
 
 local function colorToTbl(c)
     if typeof(c) == "Color3" then
@@ -70,7 +100,6 @@ function Config.NormalizeAssetId(id, kind)
     local num = s:match("(%d+)")
     if not num then return s end
     if kind == "image" then
-        -- ImageLabel accepts rbxassetid; also keep raw for rbxthumb fallback
         return "rbxassetid://" .. num, num
     end
     if not s:find("rbxassetid") then
@@ -80,10 +109,8 @@ function Config.NormalizeAssetId(id, kind)
 end
 
 function Config.ResolveImage(id)
-    local full, num = Config.NormalizeAssetId(id, "image")
-    if not full then return "" end
-    -- primary
-    return full
+    local full = Config.NormalizeAssetId(id, "image")
+    return full or ""
 end
 
 function Config.ResolveImageFallbacks(id)
@@ -116,6 +143,36 @@ function Config.GetDeathSoundNames() return namesFrom(data.deathSounds) end
 function Config.GetMusicNames() return namesFrom(data.music) end
 function Config.GetImageNames() return namesFrom(data.images) end
 
+-- ordered playlist (alphabetical, Off excluded) for auto-advance
+function Config.GetMusicPlaylist()
+    local list = {}
+    for name, id in pairs(data.music) do
+        local sid = tostring(id or "")
+        if name ~= "Off" and sid ~= "" and sid ~= "rbxassetid://0" and sid ~= "0" then
+            table.insert(list, name)
+        end
+    end
+    table.sort(list, function(a, b) return a:lower() < b:lower() end)
+    return list
+end
+
+function Config.GetMusicCutoff(name)
+    if not name or name == "" then return 0 end
+    local c = data.musicCutoffs[name]
+    if type(c) == "number" and c > 0 then return c end
+    return 0
+end
+
+function Config.SetMusicCutoff(name, seconds)
+    if not name or name == "" or name == "Off" then return end
+    local s = tonumber(seconds) or 0
+    if s <= 0 then
+        data.musicCutoffs[name] = nil
+    else
+        data.musicCutoffs[name] = s
+    end
+end
+
 function Config.GetSelectedKillSoundId()
     local sel = data.selectedKillSound
     if not sel or sel == "" or sel == "Off" then return nil end
@@ -132,6 +189,12 @@ function Config.GetSelectedMusicId()
     local sel = data.selectedMusic
     if not sel or sel == "" or sel == "Off" then return nil end
     return Config.NormalizeAssetId(data.music[sel], "sound")
+end
+
+function Config.GetSelectedMusicName()
+    local sel = data.selectedMusic
+    if not sel or sel == "" or sel == "Off" then return nil end
+    return sel
 end
 
 function Config.GetSelectedBackgroundId()
@@ -176,19 +239,20 @@ end
 
 function Config.SaveFile(extra)
     local packet = {
-        version = 1,
+        version = 2,
         killSounds = data.killSounds,
         deathSounds = data.deathSounds,
         music = data.music,
+        musicCutoffs = data.musicCutoffs,
         images = data.images,
         selectedKillSound = data.selectedKillSound,
         selectedDeathSound = data.selectedDeathSound,
         selectedMusic = data.selectedMusic,
         selectedBackground = data.selectedBackground,
         musicVolume = data.musicVolume,
+        musicAutoAdvance = data.musicAutoAdvance,
         features = extra or {},
     }
-    -- serialize colors in features
     local function walk(t)
         if type(t) ~= "table" then return t end
         local n = {}
@@ -204,7 +268,7 @@ function Config.SaveFile(extra)
         return n
     end
     packet.features = walk(packet.features)
-    local ok, err = pcall(function()
+    local ok = pcall(function()
         if writefile then
             writefile(SAVE_FILE, HttpService:JSONEncode(packet))
         else
@@ -229,16 +293,27 @@ function Config.LoadFile()
         end)
     end
     if type(packet) ~= "table" then return nil end
-    if type(packet.killSounds) == "table" then data.killSounds = packet.killSounds end
-    if type(packet.deathSounds) == "table" then data.deathSounds = packet.deathSounds end
-    if type(packet.music) == "table" then data.music = packet.music end
-    if type(packet.images) == "table" then data.images = packet.images end
+    if type(packet.killSounds) == "table" then
+        for k, v in pairs(packet.killSounds) do data.killSounds[k] = v end
+    end
+    if type(packet.deathSounds) == "table" then
+        for k, v in pairs(packet.deathSounds) do data.deathSounds[k] = v end
+    end
+    if type(packet.music) == "table" then
+        for k, v in pairs(packet.music) do data.music[k] = v end
+    end
+    if type(packet.musicCutoffs) == "table" then
+        data.musicCutoffs = packet.musicCutoffs
+    end
+    if type(packet.images) == "table" then
+        for k, v in pairs(packet.images) do data.images[k] = v end
+    end
     data.selectedKillSound = packet.selectedKillSound or data.selectedKillSound
     data.selectedDeathSound = packet.selectedDeathSound or data.selectedDeathSound
     data.selectedMusic = packet.selectedMusic or data.selectedMusic
     data.selectedBackground = packet.selectedBackground or data.selectedBackground
     data.musicVolume = packet.musicVolume or data.musicVolume
-    -- restore colors
+    if packet.musicAutoAdvance ~= nil then data.musicAutoAdvance = packet.musicAutoAdvance end
     local function walk(t)
         if type(t) ~= "table" then return t end
         local n = {}
@@ -261,7 +336,6 @@ function Config.Load()
 end
 
 function Config.Save()
-    -- no-op for compat; use SaveFile
 end
 
 return Config
