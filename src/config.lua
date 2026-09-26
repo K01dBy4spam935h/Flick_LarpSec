@@ -250,8 +250,53 @@ function Config.AddImage(name, id)
 end
 
 function Config.SaveFile(extra)
+    return Config.SaveProfile("default", extra)
+end
+
+function Config.LoadFile()
+    return Config.LoadProfile("default")
+end
+
+local function sanitizeName(name)
+    name = tostring(name or "default"):gsub("[^%w%-%_ ]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if name == "" then name = "default" end
+    return name
+end
+
+local function profilePath(name)
+    return "LarpSec_profile_" .. sanitizeName(name) .. ".json"
+end
+
+local INDEX_FILE = "LarpSec_profiles.json"
+
+function Config.ListProfiles()
+    local list = {}
+    pcall(function()
+        if isfile and isfile(INDEX_FILE) and readfile then
+            local t = HttpService:JSONDecode(readfile(INDEX_FILE))
+            if type(t) == "table" then list = t end
+        end
+    end)
+    -- always include default if file exists
+    local has = {}
+    for _, n in ipairs(list) do has[n] = true end
+    if not has["default"] then table.insert(list, 1, "default") end
+    return list
+end
+
+local function writeIndex(list)
+    pcall(function()
+        if writefile then
+            writefile(INDEX_FILE, HttpService:JSONEncode(list))
+        end
+    end)
+end
+
+function Config.SaveProfile(name, extra)
+    name = sanitizeName(name)
     local packet = {
-        version = 3,
+        version = 4,
+        name = name,
         killSounds = data.killSounds,
         deathSounds = data.deathSounds,
         music = data.music,
@@ -259,7 +304,6 @@ function Config.SaveFile(extra)
         images = data.images,
         selectedKillSound = data.selectedKillSound,
         selectedDeathSound = data.selectedDeathSound,
-        -- music selection intentionally not saved
         selectedBackground = data.selectedBackground,
         features = extra or {},
     }
@@ -280,26 +324,44 @@ function Config.SaveFile(extra)
     packet.features = walk(packet.features)
     local ok = pcall(function()
         if writefile then
-            writefile(SAVE_FILE, HttpService:JSONEncode(packet))
+            writefile(profilePath(name), HttpService:JSONEncode(packet))
         else
             local g = getgenv and getgenv() or _G
-            g.LarpSecSave = packet
+            g.LarpSecSaves = g.LarpSecSaves or {}
+            g.LarpSecSaves[name] = packet
         end
     end)
+    if ok then
+        local list = Config.ListProfiles()
+        local found = false
+        for _, n in ipairs(list) do if n == name then found = true break end end
+        if not found then table.insert(list, name) end
+        writeIndex(list)
+    end
     return ok
 end
 
-function Config.LoadFile()
+function Config.LoadProfile(name)
+    name = sanitizeName(name)
     local packet
     pcall(function()
-        if isfile and isfile(SAVE_FILE) and readfile then
-            packet = HttpService:JSONDecode(readfile(SAVE_FILE))
+        local path = profilePath(name)
+        if isfile and isfile(path) and readfile then
+            packet = HttpService:JSONDecode(readfile(path))
         end
     end)
     if not packet then
         pcall(function()
             local g = getgenv and getgenv() or _G
-            packet = g.LarpSecSave
+            if g.LarpSecSaves then packet = g.LarpSecSaves[name] end
+        end)
+    end
+    -- legacy single file
+    if not packet and name == "default" then
+        pcall(function()
+            if isfile and isfile(SAVE_FILE) and readfile then
+                packet = HttpService:JSONDecode(readfile(SAVE_FILE))
+            end
         end)
     end
     if type(packet) ~= "table" then return nil end
@@ -320,7 +382,6 @@ function Config.LoadFile()
     end
     data.selectedKillSound = packet.selectedKillSound or data.selectedKillSound
     data.selectedDeathSound = packet.selectedDeathSound or data.selectedDeathSound
-    -- do not restore selectedMusic
     data.selectedBackground = packet.selectedBackground or data.selectedBackground
     local function walk(t)
         if type(t) ~= "table" then return t end
@@ -337,6 +398,22 @@ function Config.LoadFile()
         return n
     end
     return walk(packet.features or {})
+end
+
+function Config.DeleteProfile(name)
+    name = sanitizeName(name)
+    if name == "default" then return false end
+    pcall(function()
+        if delfile and isfile and isfile(profilePath(name)) then
+            delfile(profilePath(name))
+        end
+    end)
+    local list, out = Config.ListProfiles(), {}
+    for _, n in ipairs(list) do
+        if n ~= name then table.insert(out, n) end
+    end
+    writeIndex(out)
+    return true
 end
 
 function Config.Load()
