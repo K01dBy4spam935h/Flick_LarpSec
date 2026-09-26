@@ -2,11 +2,11 @@
     LarpSec · Kill / Death / Music
 ]]
 
-local Players          = game:GetService("Players")
-local SoundService     = game:GetService("SoundService")
-local RunService       = game:GetService("RunService")
-local ReplicatedStorage= game:GetService("ReplicatedStorage")
-local LocalPlayer      = Players.LocalPlayer
+local Players           = game:GetService("Players")
+local SoundService      = game:GetService("SoundService")
+local RunService        = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer       = Players.LocalPlayer
 
 local KillSound = {}
 local Config
@@ -14,6 +14,7 @@ local lastPlay = 0
 local blockedIds = {}
 local watched = setmetatable({}, { __mode = "k" })
 local musicSound = nil
+local musicGen = 0
 
 local NAME_KEYS = {
     "hitsound", "hit_sound", "hitmarker", "kill", "killed",
@@ -150,11 +151,17 @@ function KillSound.PreviewDeath()
     playId(id, "LarpSecPreviewDeath", 2)
 end
 
-function KillSound.StartMusic()
+function KillSound.StartMusic(forceName)
     if not Config then return end
-    local id = Config.GetSelectedMusicId()
+    local name = forceName or Config.GetSelectedMusicName()
+    if not name then return end
+    local raw = Config.Get().music[name]
+    local id = Config.NormalizeAssetId(raw, "sound")
     if not id then return end
+
     KillSound.StopMusic()
+    Config.SetSelectedMusic(name)
+
     pcall(function()
         local sid = tostring(id)
         if not sid:find("rbxassetid") then sid = "rbxassetid://" .. sid end
@@ -162,17 +169,76 @@ function KillSound.StartMusic()
         s.Name = "LarpSecMusic"
         s.SoundId = sid
         s.Volume = Config.Get().musicVolume or 0.5
-        s.Looped = true
+        s.Looped = false
         s.Parent = SoundService
-        s:Play()
         musicSound = s
         Config.Get().musicPlaying = true
+
+        local cutoff = Config.GetMusicCutoff(name)
+        musicGen = musicGen + 1
+        local gen = musicGen
+
+        s.Ended:Connect(function()
+            if musicGen ~= gen then return end
+            if Config.Get().musicAutoAdvance then
+                KillSound.PlayNextMusic()
+            else
+                Config.Get().musicPlaying = false
+                musicSound = nil
+            end
+        end)
+
+        s:Play()
+
+        -- only THIS song's cutoff
+        if cutoff and cutoff > 0 then
+            task.spawn(function()
+                local t0 = tick()
+                while musicGen == gen and musicSound == s and s.Parent do
+                    if tick() - t0 >= cutoff then
+                        if musicGen == gen then
+                            pcall(function() s:Stop() end)
+                            if Config.Get().musicAutoAdvance then
+                                KillSound.PlayNextMusic()
+                            else
+                                KillSound.StopMusic()
+                            end
+                        end
+                        break
+                    end
+                    task.wait(0.1)
+                end
+            end)
+        end
     end)
 end
 
+function KillSound.PlayNextMusic()
+    if not Config then return end
+    local list = Config.GetMusicPlaylist()
+    if #list == 0 then
+        KillSound.StopMusic()
+        return
+    end
+    local cur = Config.GetSelectedMusicName()
+    local idx = 1
+    for i, n in ipairs(list) do
+        if n == cur then
+            idx = i
+            break
+        end
+    end
+    local nextName = list[(idx % #list) + 1]
+    KillSound.StartMusic(nextName)
+end
+
 function KillSound.StopMusic()
+    musicGen = musicGen + 1
     if musicSound then
-        pcall(function() musicSound:Stop() musicSound:Destroy() end)
+        pcall(function()
+            musicSound:Stop()
+            musicSound:Destroy()
+        end)
         musicSound = nil
     end
     if Config then Config.Get().musicPlaying = false end
@@ -192,7 +258,10 @@ function KillSound.Init(cfg)
         if not hookfunction then return end
         local oldPLS
         oldPLS = hookfunction(SoundService.PlayLocalSound, function(self, sound, ...)
-            if shouldBlock(sound) then muteSound(sound) return end
+            if shouldBlock(sound) then
+                muteSound(sound)
+                return
+            end
             return oldPLS(self, sound, ...)
         end)
     end)
@@ -218,7 +287,6 @@ function KillSound.Init(cfg)
         end)
     end)
 
-    -- enemy death → kill sound
     local function trackEnemy(plr)
         if plr == LocalPlayer then return end
         local function bind(char)
@@ -245,7 +313,6 @@ function KillSound.Init(cfg)
     for _, p in ipairs(Players:GetPlayers()) do trackEnemy(p) end
     Players.PlayerAdded:Connect(trackEnemy)
 
-    -- local death → death sound
     local function trackSelf(char)
         local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
         if not hum then return end
