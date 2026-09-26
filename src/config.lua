@@ -41,16 +41,32 @@ local DEFAULT_MUSIC = {
     ["Great Fairys Fountain"] = "rbxassetid://123076660184344",
     ["Tick Tack"] = "rbxassetid://122708070570064",
     ["Under Your Spell"] = "rbxassetid://91007045451630",
+    ["Paparazzi"] = "rbxassetid://76767355656506",
+    ["Drunk And Honest"] = "rbxassetid://77185624204161",
+    ["Misery"] = "rbxassetid://86317637164248",
+    ["Terranova"] = "rbxassetid://82746224492420",
+    ["Rap"] = "rbxassetid://110128107517269",v
+    ["Just The Way You Are"] = "rbxassetid://99625682843508",
     ["For My Girl"] = "rbxassetid://71393805905055",
 }
 
 -- per-song cutoff in seconds (only that song). 0 / missing = play full length
 local DEFAULT_MUSIC_CUTOFFS = {
     -- ["Drift Night Phonk"] = 42.5,
+    ["For My Girl"] = 81,
+    ["Drunk And Honest"] = 119,
+    ["Misery"] = 88,
 }
 
 local DEFAULT_IMAGES = {
     -- ["Bg1"] = "123456789",
+    ["Kanye West Funny"] = "5649884823",
+    ["Dark Anime Girl"] = "6311243701",
+    ["Hacker"] = "7167707594",
+    ["Scary"] = "7255938910",
+    ["Anime Girl Pink Aesthetic"] = "6675147490",
+    ["Background 1"] = "1050669269",
+    ["Funny Dude"] = "2184817907",
 }
 -- ==============================
 
