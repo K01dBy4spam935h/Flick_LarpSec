@@ -390,39 +390,74 @@ end
 -- UI window background image (not fullscreen)
 local uiBgTarget -- Frame to paint
 
+
+-- UI window background image
+local uiBgTarget -- Frame to paint
+
 function Perf.BindUIBackground(frame)
     uiBgTarget = frame
 end
 
-function Perf.SetUIBackground(assetId)
+function Perf.ClearUIBackground()
     if not uiBgTarget then return end
     local img = uiBgTarget:FindFirstChild("LarpSecUIBg")
+    if img then img.Visible = false end
+    -- restore solid-ish panels
+    for _, name in ipairs({"TopBar", "Sidebar", "Content"}) do
+        local f = uiBgTarget:FindFirstChild(name)
+        if f and f:IsA("Frame") then
+            f.BackgroundTransparency = 0
+        end
+    end
+end
+
+function Perf.SetUIBackground(assetId)
+    if not uiBgTarget then return end
     if not assetId or assetId == "" or assetId == "Off" then
-        if img then img.Visible = false end
+        Perf.ClearUIBackground()
         return
     end
+
+    local img = uiBgTarget:FindFirstChild("LarpSecUIBg")
     if not img then
         img = Instance.new("ImageLabel")
         img.Name = "LarpSecUIBg"
         img.Size = UDim2.new(1, 0, 1, 0)
         img.Position = UDim2.new(0, 0, 0, 0)
         img.BackgroundTransparency = 1
+        img.BorderSizePixel = 0
         img.ScaleType = Enum.ScaleType.Crop
         img.ZIndex = 0
-        img.BorderSizePixel = 0
         img.Parent = uiBgTarget
     end
     img.Visible = true
+    img.ImageTransparency = 0
+    img.ZIndex = 0
+
+    -- let image show through chrome
+    for _, name in ipairs({"TopBar", "Sidebar", "Content"}) do
+        local f = uiBgTarget:FindFirstChild(name)
+        if f and f:IsA("Frame") then
+            f.BackgroundTransparency = 0.35
+        end
+    end
+    -- groupboxes slightly see-through
+    for _, d in ipairs(uiBgTarget:GetDescendants()) do
+        if d:IsA("Frame") and d:FindFirstChild("Body") then
+            d.BackgroundTransparency = 0.25
+        end
+    end
+
     local id = tostring(assetId)
     local num = id:match("(%d+)")
     if num then
         img.Image = "rbxassetid://" .. num
         task.defer(function()
-            task.wait(0.4)
-            if img and img.ImageContent and false then end
-            -- fallback thumb if needed
+            task.wait(0.6)
+            if not img or not img.Parent then return end
+            -- if still blank, try thumb
             pcall(function()
-                if img.IsLoaded == false then
+                if img.IsLoaded == false or img.Image == "" then
                     img.Image = "rbxthumb://type=Asset&id=" .. num .. "&w=768&h=432"
                 end
             end)
