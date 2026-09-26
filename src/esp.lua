@@ -344,6 +344,8 @@ function ESP.Init()
                     from = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
                 elseif ESP.Config.TracerFrom == "Mouse" then
                     from = UserInputService:GetMouseLocation()
+                elseif ESP.Config.TracerFrom == "Top" then
+                    from = Vector2.new(Camera.ViewportSize.X / 2, 0)
                 end
                 t.tracer.From = from
                 t.tracer.To = Vector2.new(sp.X, sp.Y)
