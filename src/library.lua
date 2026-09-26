@@ -623,6 +623,7 @@ function Groupbox:AddDropdown(opts)
     local values = opts.Values or {"Option"}
     local default = opts.Default or values[1]
     local callback = opts.Callback or function() end
+    local maxVisible = opts.MaxVisible or 6
 
     local current = default
     local open = false
@@ -661,13 +662,16 @@ function Groupbox:AddDropdown(opts)
     })
     Create("UIStroke", { Color = Theme.Border, Thickness = 1, Parent = btn })
 
-    local list = Create("Frame", {
+    local list = Create("ScrollingFrame", {
         Size = UDim2.new(1, -4, 0, 0),
         Position = UDim2.fromOffset(2, 36),
         BackgroundColor3 = Theme.Groupbox,
         BorderSizePixel = 0,
         Visible = false,
-        ZIndex = 20,
+        ZIndex = 25,
+        ScrollBarThickness = 3,
+        ScrollBarImageColor3 = Theme.Accent,
+        CanvasSize = UDim2.new(0, 0, 0, 0),
         Parent = row,
     })
     Create("UIStroke", { Color = Theme.Border, Thickness = 1, Parent = list })
@@ -680,7 +684,7 @@ function Groupbox:AddDropdown(opts)
         for _, c in ipairs(list:GetChildren()) do
             if c:IsA("TextButton") then c:Destroy() end
         end
-        for _, v in ipairs(values) do
+        for i, v in ipairs(values) do
             local opt = Create("TextButton", {
                 Size = UDim2.new(1, 0, 0, 18),
                 BackgroundColor3 = Theme.Groupbox,
@@ -691,15 +695,10 @@ function Groupbox:AddDropdown(opts)
                 Font = Enum.Font.Code,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 AutoButtonColor = false,
-                ZIndex = 21,
+                ZIndex = 26,
+                LayoutOrder = i,
                 Parent = list,
             })
-            opt.MouseEnter:Connect(function()
-                opt.BackgroundColor3 = Theme.Hover
-            end)
-            opt.MouseLeave:Connect(function()
-                opt.BackgroundColor3 = Theme.Groupbox
-            end)
             opt.MouseButton1Click:Connect(function()
                 current = v
                 btn.Text = "  " .. tostring(current)
@@ -711,13 +710,15 @@ function Groupbox:AddDropdown(opts)
                 callback(current)
             end)
         end
+        list.CanvasSize = UDim2.new(0, 0, 0, #values * 18)
     end
     rebuild()
 
     btn.MouseButton1Click:Connect(function()
         open = not open
         if open then
-            local h = #values * 18
+            local vis = math.min(#values, maxVisible)
+            local h = vis * 18
             list.Size = UDim2.new(1, -4, 0, h)
             list.Visible = true
             row.Size = UDim2.new(1, 0, 0, 38 + h)
@@ -738,10 +739,96 @@ function Groupbox:AddDropdown(opts)
         end,
         Get = function() return current end,
         SetValues = function(_, newVals)
-            values = newVals
+            values = newVals or {}
             rebuild()
+            if open then
+                local vis = math.min(#values, maxVisible)
+                list.Size = UDim2.new(1, -4, 0, vis * 18)
+                row.Size = UDim2.new(1, 0, 0, 38 + vis * 18)
+                self.Resize()
+            end
         end,
     }
 end
+
+function Groupbox:AddButton(opts)
+    opts = opts or {}
+    local text = opts.Text or "Button"
+    local callback = opts.Callback or function() end
+
+    local row = Create("Frame", {
+        Size = UDim2.new(1, 0, 0, 24),
+        BackgroundTransparency = 1,
+        Parent = self.Body,
+    })
+    local btn = Create("TextButton", {
+        Size = UDim2.new(1, -4, 0, 20),
+        Position = UDim2.fromOffset(2, 2),
+        BackgroundColor3 = Theme.Background,
+        BorderSizePixel = 0,
+        Text = text,
+        TextColor3 = Theme.Text,
+        TextSize = 12,
+        Font = Enum.Font.Code,
+        AutoButtonColor = false,
+        Parent = row,
+    })
+    Create("UIStroke", { Color = Theme.Border, Thickness = 1, Parent = btn })
+    btn.MouseButton1Click:Connect(function()
+        callback()
+    end)
+    self.Resize()
+    return btn
+end
+
+function Groupbox:AddInput(opts)
+    opts = opts or {}
+    local text = opts.Text or "Input"
+    local placeholder = opts.Placeholder or ""
+    local default = opts.Default or ""
+    local callback = opts.Callback or function() end
+
+    local row = Create("Frame", {
+        Size = UDim2.new(1, 0, 0, 38),
+        BackgroundTransparency = 1,
+        Parent = self.Body,
+    })
+    Create("TextLabel", {
+        Size = UDim2.new(1, -4, 0, 14),
+        Position = UDim2.fromOffset(2, 0),
+        BackgroundTransparency = 1,
+        Text = text,
+        TextColor3 = Theme.TextDim,
+        TextSize = 11,
+        Font = Enum.Font.Code,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = row,
+    })
+    local box = Create("TextBox", {
+        Size = UDim2.new(1, -4, 0, 18),
+        Position = UDim2.fromOffset(2, 16),
+        BackgroundColor3 = Theme.Background,
+        BorderSizePixel = 0,
+        Text = default,
+        PlaceholderText = placeholder,
+        TextColor3 = Theme.Text,
+        PlaceholderColor3 = Theme.TextDim,
+        TextSize = 12,
+        Font = Enum.Font.Code,
+        ClearTextOnFocus = false,
+        Parent = row,
+    })
+    Create("UIStroke", { Color = Theme.Border, Thickness = 1, Parent = box })
+    box.FocusLost:Connect(function()
+        callback(box.Text)
+    end)
+    self.Resize()
+    return {
+        Set = function(_, v) box.Text = tostring(v or "") end,
+        Get = function() return box.Text end,
+        Instance = box,
+    }
+end
+
 
 return Library
