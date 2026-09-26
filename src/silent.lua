@@ -4,6 +4,7 @@
 ]]
 
 local Silent = {}
+Silent.OnKillFeedback = nil -- set by loader to KillSound.Play
 
 local Players          = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -312,6 +313,7 @@ function Silent.Init()
                     local d = target.Position - realOrigin
                     if d.Magnitude > 0.001 then
                         data.Direction = d.Unit
+                        _G.__LarpSecHadTarget = true
                     end
                     if data.Misc and type(data.Misc) == "table" then
                         pcall(function()
@@ -322,6 +324,21 @@ function Silent.Init()
             end
 
             local result = oldFire(data)
+
+            -- mute packet hit sound; play custom only if we had a target this shot
+            pcall(function()
+                if data.Logic and typeof(data.Logic.HitSound) == "Instance" then
+                    data.Logic.HitSound.Volume = 0
+                end
+            end)
+            if _G.__LarpSecHadTarget then
+                _G.__LarpSecHadTarget = false
+                pcall(function()
+                    if Silent.OnKillFeedback then
+                        Silent.OnKillFeedback()
+                    end
+                end)
+            end
 
             if Silent.Config.NoReload then
                 ApplyNoReload()
