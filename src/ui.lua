@@ -936,6 +936,57 @@ local addType = "Kill"
     GBSnd:AddLabel("Images: rbxassetid + thumb fallback")
 
     Window.Frame.Visible = true
+
+
+    -- Credits
+    local TabCredits = Window:CreateTab("Credits")
+    local function addCreditRow(body, username)
+        local row = Instance.new("Frame")
+        row.Name = "CreditRow"
+        row.Size = UDim2.new(1, -4, 0, 44)
+        row.BackgroundTransparency = 1
+        row.Parent = body
+
+        local avatar = Instance.new("ImageLabel")
+        avatar.Size = UDim2.new(0, 36, 0, 36)
+        avatar.Position = UDim2.new(0, 4, 0, 4)
+        avatar.BackgroundColor3 = Color3.fromRGB(30, 30, 36)
+        avatar.BorderSizePixel = 0
+        avatar.ScaleType = Enum.ScaleType.Crop
+        avatar.Parent = row
+        Instance.new("UICorner", avatar).CornerRadius = UDim.new(1, 0)
+
+        local nameLbl = Instance.new("TextLabel")
+        nameLbl.Size = UDim2.new(1, -52, 1, 0)
+        nameLbl.Position = UDim2.new(0, 48, 0, 0)
+        nameLbl.BackgroundTransparency = 1
+        nameLbl.Text = "@" .. username
+        nameLbl.TextColor3 = currentFontColor or Color3.new(1, 1, 1)
+        nameLbl.TextSize = 14
+        nameLbl.Font = Enum.Font.Fantasy
+        nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+        nameLbl.TextYAlignment = Enum.TextYAlignment.Center
+        nameLbl.Parent = row
+
+        task.spawn(function()
+            local uid
+            pcall(function()
+                uid = Players:GetUserIdFromNameAsync(username)
+            end)
+            if uid then
+                avatar.Image = ("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150"):format(uid)
+            end
+        end)
+    end
+
+    local gbOwner = TabCredits:CreateGroupbox("Owner", "Left")
+    addCreditRow(gbOwner.Body, "SwiftlyJun")
+    if gbOwner.Resize then gbOwner.Resize() end
+
+    local gbDev = TabCredits:CreateGroupbox("Developer", "Right")
+    addCreditRow(gbDev.Body, "SwiftlyJun")
+    if gbDev.Resize then gbDev.Resize() end
+
     applyTheme(Window, "Default", "Fantasy", currentFontColor)
 end
 
