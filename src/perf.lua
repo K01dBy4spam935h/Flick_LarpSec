@@ -434,17 +434,16 @@ function Perf.SetUIBackground(assetId)
     img.ImageTransparency = 0
     img.ZIndex = 0
 
-    -- let image show through chrome
+    -- let image show clearly through chrome (higher transparency = less washed out)
     for _, name in ipairs({"TopBar", "Sidebar", "Content"}) do
         local f = uiBgTarget:FindFirstChild(name)
         if f and f:IsA("Frame") then
-            f.BackgroundTransparency = 0.35
+            f.BackgroundTransparency = 0.55
         end
     end
-    -- groupboxes slightly see-through
     for _, d in ipairs(uiBgTarget:GetDescendants()) do
         if d:IsA("Frame") and d:FindFirstChild("Body") then
-            d.BackgroundTransparency = 0.25
+            d.BackgroundTransparency = 0.45
         end
     end
 
@@ -458,7 +457,7 @@ function Perf.SetUIBackground(assetId)
             -- if still blank, try thumb
             pcall(function()
                 if img.IsLoaded == false or img.Image == "" then
-                    img.Image = "rbxthumb://type=Asset&id=" .. num .. "&w=768&h=432"
+                    img.Image = "rbxthumb://type=Asset&id=" .. num .. "&w=1500&h=1500"
                 end
             end)
         end)
