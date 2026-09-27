@@ -22,6 +22,7 @@ Silent.Config = {
     ShowFOV      = true,
     FOVColor     = Color3.fromRGB(74, 144, 226),
     FOVThickness = 1.5,
+    FOVRainbow  = false, -- perimeter gradient rainbow
     Sticky       = true,
     HitChance    = 100,
     NoReload     = false,
@@ -36,6 +37,39 @@ FOVCircle.Filled    = false
 FOVCircle.Color     = Silent.Config.FOVColor
 FOVCircle.Visible   = false
 FOVCircle.ZIndex    = 2
+
+-- gradient rainbow FOV: ring made of colored segments (hue shifts around + over time)
+local FOV_SEGS = 64
+local fovSegs = {}
+for i = 1, FOV_SEGS do
+    local ln = Drawing.new("Line")
+    ln.Thickness = Silent.Config.FOVThickness
+    ln.Visible = false
+    ln.ZIndex = 2
+    fovSegs[i] = ln
+end
+
+local function setFovSegsVisible(v)
+    for i = 1, FOV_SEGS do
+        fovSegs[i].Visible = v
+    end
+end
+
+local function updateFovRainbow(mouse, radius, thickness)
+    local t = tick() * 0.55
+    local twoPi = math.pi * 2
+    for i = 1, FOV_SEGS do
+        local a0 = ((i - 1) / FOV_SEGS) * twoPi
+        local a1 = (i / FOV_SEGS) * twoPi
+        local h = ((i / FOV_SEGS) + t * 0.15) % 1
+        local ln = fovSegs[i]
+        ln.From = mouse + Vector2.new(math.cos(a0) * radius, math.sin(a0) * radius)
+        ln.To   = mouse + Vector2.new(math.cos(a1) * radius, math.sin(a1) * radius)
+        ln.Color = Color3.fromHSV(h, 1, 1)
+        ln.Thickness = thickness
+        ln.Visible = true
+    end
+end
 
 local stickyTarget = nil
 local reloadTable = nil -- FRESH gun-shaped table (Ammo + reloadTime), NOT GF.new return
@@ -398,12 +432,23 @@ function Silent.Init()
 
     RunService.RenderStepped:Connect(function()
         if Silent.Config.Enabled and Silent.Config.ShowFOV then
-            FOVCircle.Position = UserInputService:GetMouseLocation()
-            FOVCircle.Radius   = Silent.Config.FOV
-            FOVCircle.Color    = Silent.Config.FOVColor
-            FOVCircle.Visible  = true
+            local mouse = UserInputService:GetMouseLocation()
+            local radius = Silent.Config.FOV
+            local thick = Silent.Config.FOVThickness
+            if Silent.Config.FOVRainbow then
+                FOVCircle.Visible = false
+                updateFovRainbow(mouse, radius, thick)
+            else
+                setFovSegsVisible(false)
+                FOVCircle.Position = mouse
+                FOVCircle.Radius = radius
+                FOVCircle.Color = Silent.Config.FOVColor
+                FOVCircle.Thickness = thick
+                FOVCircle.Visible = true
+            end
         else
             FOVCircle.Visible = false
+            setFovSegsVisible(false)
         end
     end)
 
