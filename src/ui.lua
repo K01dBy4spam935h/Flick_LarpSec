@@ -73,12 +73,13 @@ local function startAnimatedBackground(window, theme)
     end)
 end
 
-local function applyTheme(window, themeName, fontName)
+local function applyTheme(window, themeName, fontName, fontColor)
     local theme = Themes[themeName] or Themes.Default
     pcall(function()
         startAnimatedBackground(window, theme)
         local root = window.Frame
         if not root then return end
+        local tc = fontColor or theme.Text or Color3.new(1, 1, 1)
         for _, d in ipairs(root:GetDescendants()) do
             if d:IsA("Frame") then
                 local n = d.Name:lower()
@@ -86,8 +87,16 @@ local function applyTheme(window, themeName, fontName)
                 if n == "sliderfill" or n == "fill" then d.BackgroundColor3 = theme.Accent end
             end
             if d:IsA("UIStroke") then d.Color = theme.Border end
-            if (d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox")) and fontName then
-                pcall(function() d.Font = Enum.Font[fontName] end)
+            if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
+                if fontName then
+                    pcall(function() d.Font = Enum.Font[fontName] end)
+                end
+                -- skip pure accent-only labels if any; recolor main text
+                pcall(function()
+                    if d.TextTransparency < 1 then
+                        d.TextColor3 = tc
+                    end
+                end)
             end
         end
     end)
@@ -275,6 +284,7 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
         return Lib.ScreenGui or game:GetService("CoreGui"):FindFirstChild("FlickLib")
     end
     local currentTheme, currentUIFont = "Default", "Fantasy"
+    local currentFontColor = Color3.fromRGB(255, 255, 255)
 
     local function colorChooser(label, getCol, setCol)
         -- button that opens HSV canvas
@@ -355,6 +365,11 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
     })
     GBSilent:AddToggle({Text = "Visible Check", Default = Silent.Config.VisibleCheck, Callback = function(v) Silent.Config.VisibleCheck = v end})
     GBSilent:AddToggle({Text = "Sticky Aim", Default = Silent.Config.Sticky, Callback = function(v) Silent.Config.Sticky = v end})
+    GBSilent:AddToggle({
+        Text = "FOV Rainbow Gradient",
+        Default = Silent.Config.FOVRainbow,
+        Callback = function(v) Silent.Config.FOVRainbow = v end,
+    })
     GBSilent:AddButton({
         Text = "FOV Color — Choose Color",
         Callback = function()
@@ -501,23 +516,55 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
 
     GBTheme:AddDropdown({
         Text = "Theme", Values = {"Default","Ubuntu","Tokyo","Blossom","Midnight","Dark","Hacker"}, Default = "Default",
-        Callback = function(name) currentTheme = name applyTheme(Window, name, currentUIFont) end,
+        Callback = function(name) currentTheme = name applyTheme(Window, name, currentUIFont, currentFontColor) end,
     })
     GBTheme:AddDropdown({
         Text = "UI Font", Values = UI_FONTS, Default = "Fantasy",
-        Callback = function(name) currentUIFont = name applyTheme(Window, currentTheme, name) end,
+        Callback = function(name) currentUIFont = name applyTheme(Window, currentTheme, name, currentFontColor) end,
+    })
+    GBTheme:AddButton({
+        Text = "Font Color — Choose Color",
+        Callback = function()
+            local g = guiRoot()
+            if g then
+                openColorPicker(g, currentFontColor, function(c)
+                    currentFontColor = c
+                    applyTheme(Window, currentTheme, currentUIFont, currentFontColor)
+                end)
+            end
+        end,
     })
 
     -- Background (UI window image)
     if Config then
         local function applyBg(name)
             Config.SetSelectedBackground(name)
-            if name == "Off" or not name then
-                if Perf.ClearUIBackground then Perf.ClearUIBackground()
-                elseif Perf.SetUIBackground then Perf.SetUIBackground(nil) end
-                applyTheme(Window, currentTheme, currentUIFont)
+            if name == "Off" or not name or name == "" then
+                Config.SetSelectedBackground("")
+                if Perf.ClearUIBackground then Perf.ClearUIBackground() end
+                if Perf.SetUIBackground then Perf.SetUIBackground(nil) end
+                -- re-enable gradients + solid panels
+                pcall(function()
+                    local root = Window.Frame
+                    if root then
+                        for _, d in ipairs(root:GetDescendants()) do
+                            if d.Name == "PanelGrad" or d.Name == "WindowGrad" then
+                                d.Enabled = true
+                            end
+                            if d:IsA("Frame") then
+                                local n = d.Name
+                                if n == "TopBar" or n == "Sidebar" or n == "Content" then
+                                    d.BackgroundTransparency = 0
+                                end
+                                if d:FindFirstChild("Body") then
+                                    d.BackgroundTransparency = 0
+                                end
+                            end
+                        end
+                    end
+                end)
+                applyTheme(Window, currentTheme, currentUIFont, currentFontColor)
             else
-                Config.SetSelectedBackground(name)
                 local id = Config.GetSelectedBackgroundId()
                 animToken = animToken + 1
                 pcall(function()
@@ -570,6 +617,7 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
             perf = copyCfg(Perf.Config),
             theme = currentTheme,
             font = currentUIFont,
+            fontColor = currentFontColor,
         }
     end
 
@@ -585,10 +633,15 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
             for k, v in pairs(feat.perf) do Perf.Config[k] = v end
             pcall(function() if Perf.Refresh then Perf.Refresh() end end)
         end
-        if feat.theme or feat.font then
+        if feat.fontColor and typeof(feat.fontColor) == "Color3" then
+            currentFontColor = feat.fontColor
+        elseif type(feat.fontColor) == "table" and feat.fontColor.r then
+            currentFontColor = Color3.new(feat.fontColor.r, feat.fontColor.g, feat.fontColor.b)
+        end
+        if feat.theme or feat.font or feat.fontColor then
             currentTheme = feat.theme or currentTheme
             currentUIFont = feat.font or currentUIFont
-            applyTheme(Window, currentTheme, currentUIFont)
+            applyTheme(Window, currentTheme, currentUIFont, currentFontColor)
         end
         if UI._killDD then
             UI._killDD.SetValues(UI._killDD, Config.GetKillSoundNames())
@@ -706,7 +759,7 @@ local addType = "Kill"
     GBSnd:AddLabel("Images: rbxassetid + thumb fallback")
 
     Window.Frame.Visible = true
-    applyTheme(Window, "Default", "Fantasy")
+    applyTheme(Window, "Default", "Fantasy", currentFontColor)
 end
 
 return UI
