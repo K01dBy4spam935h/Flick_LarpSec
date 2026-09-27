@@ -301,7 +301,85 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
     local GBServer = TabMain:CreateGroupbox("Server", "Left")
     local GBAnti = TabMain:CreateGroupbox("Anti-Cheat", "Right")
     GBServer:AddLabel("Executor: " .. getExecutorName())
-    GBServer:AddLabel("JobId: " .. tostring(game.JobId))
+    do
+        local jid = tostring(game.JobId)
+        local short = #jid > 18 and (jid:sub(1, 16) .. "…") or jid
+        GBServer:AddLabel("JobId: " .. short)
+        GBServer:AddButton({
+            Text = "View JobId  [eye]",
+            Callback = function()
+                local g = guiRoot()
+                if not g then return end
+                local old = g:FindFirstChild("JobIdPanel")
+                if old then old:Destroy() end
+                local panel = Instance.new("Frame")
+                panel.Name = "JobIdPanel"
+                panel.Size = UDim2.new(0, 320, 0, 110)
+                panel.Position = UDim2.new(0.5, -160, 0.5, -55)
+                panel.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
+                panel.BorderSizePixel = 0
+                panel.ZIndex = 100
+                panel.Parent = g
+                Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 6)
+                local title = Instance.new("TextLabel")
+                title.Size = UDim2.new(1, -16, 0, 20)
+                title.Position = UDim2.new(0, 8, 0, 6)
+                title.BackgroundTransparency = 1
+                title.Text = "Full JobId"
+                title.TextColor3 = Color3.new(1, 1, 1)
+                title.TextSize = 13
+                title.Font = Enum.Font.Fantasy
+                title.TextXAlignment = Enum.TextXAlignment.Left
+                title.ZIndex = 101
+                title.Parent = panel
+                local box = Instance.new("TextBox")
+                box.Size = UDim2.new(1, -16, 0, 36)
+                box.Position = UDim2.new(0, 8, 0, 30)
+                box.BackgroundColor3 = Color3.fromRGB(14, 14, 18)
+                box.BorderSizePixel = 0
+                box.Text = jid
+                box.TextColor3 = Color3.new(1, 1, 1)
+                box.TextSize = 11
+                box.Font = Enum.Font.Code
+                box.TextWrapped = true
+                box.ClearTextOnFocus = false
+                box.TextEditable = false
+                box.ZIndex = 101
+                box.Parent = panel
+                local copy = Instance.new("TextButton")
+                copy.Size = UDim2.new(0, 90, 0, 24)
+                copy.Position = UDim2.new(0, 8, 0, 74)
+                copy.BackgroundColor3 = Color3.fromRGB(40, 42, 55)
+                copy.Text = "Copy"
+                copy.TextColor3 = Color3.new(1, 1, 1)
+                copy.TextSize = 12
+                copy.Font = Enum.Font.Fantasy
+                copy.ZIndex = 101
+                copy.Parent = panel
+                Instance.new("UICorner", copy).CornerRadius = UDim.new(0, 4)
+                copy.MouseButton1Click:Connect(function()
+                    pcall(function()
+                        if setclipboard then setclipboard(jid)
+                        elseif toclipboard then toclipboard(jid) end
+                    end)
+                    copy.Text = "Copied"
+                    task.delay(1.2, function() if copy then copy.Text = "Copy" end end)
+                end)
+                local close = Instance.new("TextButton")
+                close.Size = UDim2.new(0, 90, 0, 24)
+                close.Position = UDim2.new(0, 108, 0, 74)
+                close.BackgroundColor3 = Color3.fromRGB(40, 42, 55)
+                close.Text = "Close"
+                close.TextColor3 = Color3.new(1, 1, 1)
+                close.TextSize = 12
+                close.Font = Enum.Font.Fantasy
+                close.ZIndex = 101
+                close.Parent = panel
+                Instance.new("UICorner", close).CornerRadius = UDim.new(0, 4)
+                close.MouseButton1Click:Connect(function() panel:Destroy() end)
+            end,
+        })
+    end
     GBServer:AddLabel("Players: " .. tostring(#Players:GetPlayers()))
     GBServer:AddLabel("Latency: -- ms")
     GBAnti:AddLabel("AC: checking...")
@@ -742,6 +820,105 @@ local addType = "Kill"
     })
 
     -- Beta / Info
+
+    -- Server
+    local TabServer = Window:CreateTab("Server")
+    local GBHop = TabServer:CreateGroupbox("Teleport", "Left")
+    local GBJoin = TabServer:CreateGroupbox("Join JobId", "Right")
+
+    local TeleportService = game:GetService("TeleportService")
+    local HttpService = game:GetService("HttpService")
+
+    local function httpGet(url)
+        local body
+        pcall(function()
+            if syn and syn.request then
+                body = syn.request({ Url = url, Method = "GET" }).Body
+            elseif http_request then
+                body = http_request({ Url = url, Method = "GET" }).Body
+            elseif request then
+                body = request({ Url = url, Method = "GET" }).Body
+            else
+                body = game:HttpGet(url)
+            end
+        end)
+        return body
+    end
+
+    local function serverHop()
+        local placeId = game.PlaceId
+        local cur = game.JobId
+        local url = ("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Desc&limit=100"):format(placeId)
+        local body = httpGet(url)
+        if not body then
+            warn("[Server] hop: http failed")
+            return
+        end
+        local ok, data = pcall(function() return HttpService:JSONDecode(body) end)
+        if not ok or type(data) ~= "table" then
+            warn("[Server] hop: bad json")
+            return
+        end
+        local ids = {}
+        for _, s in ipairs(data.data or {}) do
+            if type(s) == "table" and s.id and s.id ~= cur then
+                local playing = tonumber(s.playing) or 0
+                local maxp = tonumber(s.maxPlayers) or 1
+                if playing < maxp then
+                    table.insert(ids, s.id)
+                end
+            end
+        end
+        if #ids == 0 then
+            warn("[Server] hop: no other servers")
+            return
+        end
+        local target = ids[math.random(1, #ids)]
+        print("[Server] hopping to", target)
+        pcall(function()
+            TeleportService:TeleportToPlaceInstance(placeId, target, LocalPlayer)
+        end)
+    end
+
+    local function rejoin()
+        print("[Server] rejoining", game.JobId)
+        pcall(function()
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+        end)
+    end
+
+    local function joinJob(id)
+        id = tostring(id or ""):gsub("%s+", "")
+        if id == "" then
+            warn("[Server] empty jobid")
+            return
+        end
+        print("[Server] joining", id)
+        pcall(function()
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, id, LocalPlayer)
+        end)
+    end
+
+    GBHop:AddButton({ Text = "Server Hop", Callback = serverHop })
+    GBHop:AddButton({ Text = "Rejoin", Callback = rejoin })
+    local jobIn = GBJoin:AddInput({
+        Text = "JobId",
+        Placeholder = "paste job id",
+        Default = "",
+    })
+    GBJoin:AddButton({
+        Text = "Join JobId",
+        Callback = function()
+            joinJob(jobIn.Get())
+        end,
+    })
+    GBJoin:AddButton({
+        Text = "Paste Current JobId",
+        Callback = function()
+            jobIn.Set(jobIn, tostring(game.JobId))
+        end,
+    })
+
     local TabBeta = Window:CreateTab("Beta")
     local GBExp = TabBeta:CreateGroupbox("Experimental", "Left")
     GBExp:AddToggle({
