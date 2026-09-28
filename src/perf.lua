@@ -447,22 +447,29 @@ function Perf.SetUIBackground(assetId)
     img.ImageTransparency = 0
     img.ZIndex = 0
 
-    -- window itself transparent so image shows; chrome glass
+    -- dark glass over image (never white wash)
+    uiBgTarget.BackgroundColor3 = Color3.new(0, 0, 0)
     uiBgTarget.BackgroundTransparency = 1
     for _, name in ipairs({"TopBar", "Sidebar", "Content"}) do
         local f = uiBgTarget:FindFirstChild(name)
         if f and f:IsA("Frame") then
-            f.BackgroundTransparency = 0.65
+            f.BackgroundColor3 = Color3.fromRGB(8, 8, 12)
+            f.BackgroundTransparency = 0.55
         end
     end
     for _, d in ipairs(uiBgTarget:GetDescendants()) do
         if d:IsA("Frame") and d:FindFirstChild("Body") then
-            d.BackgroundTransparency = 0.5
+            d.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
+            d.BackgroundTransparency = 0.4
         end
         if d.Name == "PanelGrad" or d.Name == "WindowGrad" then
             d.Enabled = false
         end
     end
+    -- force image behind: lowest z, visible
+    img.ZIndex = 0
+    img.Visible = true
+    img.ImageTransparency = 0
 
     local id = tostring(assetId)
     local num = id:match("(%d+)")
