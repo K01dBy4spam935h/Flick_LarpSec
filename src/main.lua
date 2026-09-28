@@ -8,6 +8,9 @@ local function load(path)
     return loadstring(game:HttpGet(BASE .. path))()
 end
 
+local Key = load("key.lua")
+if not Key.Prompt() then return end
+
 local Anti = load("anti.lua")
 Anti.Init()
 task.wait(0.35)
