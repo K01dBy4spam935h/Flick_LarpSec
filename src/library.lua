@@ -509,10 +509,10 @@ function Groupbox:AddToggle(opts)
 
     self.Resize()
     return {
-        Set = function(_, v)
-            state = v
+        Set = function(_, v, silent)
+            state = not not v
             box.BackgroundColor3 = state and Theme.Accent or Theme.Background
-            callback(state)
+            if not silent then callback(state) end
         end,
         Get = function() return state end,
     }
@@ -606,12 +606,12 @@ function Groupbox:AddSlider(opts)
 
     self.Resize()
     return {
-        Set = function(_, v)
+        Set = function(_, v, silent)
             value = math.clamp(Round(v), min, max)
             local rel = (value - min) / math.max(max - min, 1)
             fill.Size = UDim2.new(rel, 0, 1, 0)
             label.Text = string.format("%s: %s%s [%s/%s]", text, tostring(value), suffix, tostring(min), tostring(max))
-            callback(value)
+            if not silent then callback(value) end
         end,
         Get = function() return value end,
     }
