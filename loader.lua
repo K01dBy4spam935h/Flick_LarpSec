@@ -32,6 +32,11 @@ local function fetch(name)
     return mod
 end
 
+local Key = fetch("key.lua")
+if not Key.Prompt() then
+    return
+end
+
 local Anti = fetch("anti.lua")
 Anti.Init()
 task.wait(0.25)
