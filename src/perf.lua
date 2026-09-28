@@ -387,42 +387,52 @@ function Perf.SetBackground(assetId)
 end
 
 
--- UI window background image (not fullscreen)
-local uiBgTarget -- Frame to paint
 
-
--- UI window background image
-local uiBgTarget -- Frame to paint
+-- UI window background
+local uiBgTarget = nil
+Perf.UIBgActive = false
 
 function Perf.BindUIBackground(frame)
     uiBgTarget = frame
 end
 
 function Perf.ClearUIBackground()
+    Perf.UIBgActive = false
     if not uiBgTarget then return end
     local img = uiBgTarget:FindFirstChild("LarpSecUIBg")
-    if img then img.Visible = false end
-    -- restore solid-ish panels
+    if img then
+        img.Visible = false
+        img.Image = ""
+    end
     for _, name in ipairs({"TopBar", "Sidebar", "Content"}) do
         local f = uiBgTarget:FindFirstChild(name)
         if f and f:IsA("Frame") then
             f.BackgroundTransparency = 0
         end
     end
+    for _, d in ipairs(uiBgTarget:GetDescendants()) do
+        if d:IsA("Frame") and d:FindFirstChild("Body") then
+            d.BackgroundTransparency = 0
+        end
+    end
 end
 
 function Perf.SetUIBackground(assetId)
-    if not uiBgTarget then return end
+    if not uiBgTarget then
+        warn("[Perf] UI background: window not bound")
+        return
+    end
     if not assetId or assetId == "" or assetId == "Off" then
         Perf.ClearUIBackground()
         return
     end
 
+    Perf.UIBgActive = true
     local img = uiBgTarget:FindFirstChild("LarpSecUIBg")
     if not img then
         img = Instance.new("ImageLabel")
         img.Name = "LarpSecUIBg"
-        img.Size = UDim2.new(1, 0, 1, 0)
+        img.Size = UDim2.fromScale(1, 1)
         img.Position = UDim2.new(0, 0, 0, 0)
         img.BackgroundTransparency = 1
         img.BorderSizePixel = 0
@@ -430,20 +440,27 @@ function Perf.SetUIBackground(assetId)
         img.ZIndex = 0
         img.Parent = uiBgTarget
     end
+    -- push behind children: reparent first
+    img.Parent = nil
+    img.Parent = uiBgTarget
     img.Visible = true
     img.ImageTransparency = 0
     img.ZIndex = 0
 
-    -- let image show clearly through chrome (higher transparency = less washed out)
+    -- window itself transparent so image shows; chrome glass
+    uiBgTarget.BackgroundTransparency = 1
     for _, name in ipairs({"TopBar", "Sidebar", "Content"}) do
         local f = uiBgTarget:FindFirstChild(name)
         if f and f:IsA("Frame") then
-            f.BackgroundTransparency = 0.55
+            f.BackgroundTransparency = 0.65
         end
     end
     for _, d in ipairs(uiBgTarget:GetDescendants()) do
         if d:IsA("Frame") and d:FindFirstChild("Body") then
-            d.BackgroundTransparency = 0.45
+            d.BackgroundTransparency = 0.5
+        end
+        if d.Name == "PanelGrad" or d.Name == "WindowGrad" then
+            d.Enabled = false
         end
     end
 
@@ -451,12 +468,11 @@ function Perf.SetUIBackground(assetId)
     local num = id:match("(%d+)")
     if num then
         img.Image = "rbxassetid://" .. num
-        task.defer(function()
-            task.wait(0.6)
+        task.delay(0.5, function()
             if not img or not img.Parent then return end
-            -- if still blank, try thumb
+            -- fallback high-res thumb if asset doesn't resolve as image
             pcall(function()
-                if img.IsLoaded == false or img.Image == "" then
+                if img.IsLoaded == false then
                     img.Image = "rbxthumb://type=Asset&id=" .. num .. "&w=1500&h=1500"
                 end
             end)
