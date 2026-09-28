@@ -39,7 +39,7 @@ FOVCircle.Visible   = false
 FOVCircle.ZIndex    = 2
 
 -- gradient rainbow FOV: ring made of colored segments (hue shifts around + over time)
-local FOV_SEGS = 64
+local FOV_SEGS = 96
 local fovSegs = {}
 for i = 1, FOV_SEGS do
     local ln = Drawing.new("Line")
@@ -56,17 +56,24 @@ local function setFovSegsVisible(v)
 end
 
 local function updateFovRainbow(mouse, radius, thickness)
-    local t = tick() * 0.55
+    local t = tick() * 1.2
     local twoPi = math.pi * 2
-    for i = 1, FOV_SEGS do
-        local a0 = ((i - 1) / FOV_SEGS) * twoPi
-        local a1 = (i / FOV_SEGS) * twoPi
-        local h = ((i / FOV_SEGS) + t * 0.15) % 1
+    local segs = FOV_SEGS
+    for i = 1, segs do
+        local a0 = ((i - 1) / segs) * twoPi + t
+        local a1 = (i / segs) * twoPi + t
+        -- full spectrum around the ring at once; t rotates the gradient
+        local h = ((i - 1) / segs + t * 0.08) % 1
         local ln = fovSegs[i]
-        ln.From = mouse + Vector2.new(math.cos(a0) * radius, math.sin(a0) * radius)
-        ln.To   = mouse + Vector2.new(math.cos(a1) * radius, math.sin(a1) * radius)
+        local c0 = math.cos(a0) * radius
+        local s0 = math.sin(a0) * radius
+        local c1 = math.cos(a1) * radius
+        local s1 = math.sin(a1) * radius
+        ln.From = Vector2.new(mouse.X + c0, mouse.Y + s0)
+        ln.To = Vector2.new(mouse.X + c1, mouse.Y + s1)
         ln.Color = Color3.fromHSV(h, 1, 1)
-        ln.Thickness = thickness
+        ln.Thickness = math.max(thickness, 2)
+        ln.Transparency = 0
         ln.Visible = true
     end
 end
