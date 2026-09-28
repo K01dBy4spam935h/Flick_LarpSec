@@ -23,6 +23,7 @@ Silent.Config = {
     FOVColor     = Color3.fromRGB(74, 144, 226),
     FOVThickness = 1.5,
     FOVRainbow  = false, -- perimeter gradient rainbow
+    FOVColorLoop = false, -- solid hue cycle
     Sticky       = true,
     HitChance    = 100,
     NoReload     = false,
@@ -39,14 +40,17 @@ FOVCircle.Visible   = false
 FOVCircle.ZIndex    = 2
 
 -- gradient rainbow FOV: ring made of colored segments (hue shifts around + over time)
-local FOV_SEGS = 96
+local FOV_SEGS = 72
 local fovSegs = {}
 for i = 1, FOV_SEGS do
-    local ln = Drawing.new("Line")
-    ln.Thickness = Silent.Config.FOVThickness
-    ln.Visible = false
-    ln.ZIndex = 2
-    fovSegs[i] = ln
+    local d = Drawing.new("Circle")
+    d.Filled = true
+    d.NumSides = 12
+    d.Thickness = 1
+    d.Radius = 2
+    d.Visible = false
+    d.ZIndex = 3
+    fovSegs[i] = d
 end
 
 local function setFovSegsVisible(v)
@@ -56,25 +60,21 @@ local function setFovSegsVisible(v)
 end
 
 local function updateFovRainbow(mouse, radius, thickness)
-    local t = tick() * 1.2
+    local t = tick() * 1.35
     local twoPi = math.pi * 2
     local segs = FOV_SEGS
+    local dotR = math.max(2, thickness + 0.5)
     for i = 1, segs do
-        local a0 = ((i - 1) / segs) * twoPi + t
-        local a1 = (i / segs) * twoPi + t
-        -- full spectrum around the ring at once; t rotates the gradient
-        local h = ((i - 1) / segs + t * 0.08) % 1
-        local ln = fovSegs[i]
-        local c0 = math.cos(a0) * radius
-        local s0 = math.sin(a0) * radius
-        local c1 = math.cos(a1) * radius
-        local s1 = math.sin(a1) * radius
-        ln.From = Vector2.new(mouse.X + c0, mouse.Y + s0)
-        ln.To = Vector2.new(mouse.X + c1, mouse.Y + s1)
-        ln.Color = Color3.fromHSV(h, 1, 1)
-        ln.Thickness = math.max(thickness, 2)
-        ln.Transparency = 0
-        ln.Visible = true
+        local a = ((i - 1) / segs) * twoPi + t
+        local h = ((i - 1) / segs) % 1 -- full spectrum fixed around ring
+        -- rotate hues over time
+        h = (h + t * 0.12) % 1
+        local d = fovSegs[i]
+        d.Position = Vector2.new(mouse.X + math.cos(a) * radius, mouse.Y + math.sin(a) * radius)
+        d.Radius = dotR
+        d.Color = Color3.fromHSV(h, 1, 1)
+        d.Transparency = 0
+        d.Visible = true
     end
 end
 
@@ -449,7 +449,11 @@ function Silent.Init()
                 setFovSegsVisible(false)
                 FOVCircle.Position = mouse
                 FOVCircle.Radius = radius
-                FOVCircle.Color = Silent.Config.FOVColor
+                if Silent.Config.FOVColorLoop then
+                    FOVCircle.Color = Color3.fromHSV((tick() * 0.25) % 1, 0.95, 1)
+                else
+                    FOVCircle.Color = Silent.Config.FOVColor
+                end
                 FOVCircle.Thickness = thick
                 FOVCircle.Visible = true
             end
