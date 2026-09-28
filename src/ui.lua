@@ -102,10 +102,14 @@ local function applyTheme(window, themeName, fontName, fontColor)
             end
         end
         if bgOn and root then
+            root.BackgroundColor3 = Color3.new(0, 0, 0)
             root.BackgroundTransparency = 1
             for _, name in ipairs({"TopBar", "Sidebar", "Content"}) do
                 local f = root:FindFirstChild(name)
-                if f then f.BackgroundTransparency = 0.65 end
+                if f then
+                    f.BackgroundColor3 = Color3.fromRGB(8, 8, 12)
+                    f.BackgroundTransparency = 0.55
+                end
             end
         end
     end)
@@ -210,14 +214,24 @@ local function openColorPicker(parentGui, current, onChange)
     modeLbl.ZIndex = 91
     modeLbl.Parent = popup
 
+    -- Rain = gradient rainbow (all hues / rotating gradient signal)
+    -- StatR = solid color looping through hues
     local function emit()
         local c
-        if mode == "Rainbow" then c = Color3.fromHSV((tick()*0.2)%1, 0.9, 1)
-        elseif mode == "StaticRainbow" then c = Color3.fromRGB(255,40,180)
-        else c = Color3.fromHSV(h,s,v) end
+        if mode == "Rainbow" then
+            -- solid loop (legacy name swapped per request: StatR does this)
+            c = Color3.fromHSV((tick() * 0.25) % 1, 0.95, 1)
+        elseif mode == "GradientRainbow" then
+            -- multi-hue signal: base color cycles but callback mode tells features to use gradient
+            c = Color3.fromHSV((tick() * 0.15) % 1, 1, 1)
+        elseif mode == "StaticRainbow" then
+            c = Color3.fromHSV((tick() * 0.25) % 1, 0.95, 1)
+        else
+            c = Color3.fromHSV(h, s, v)
+        end
         preview.BackgroundColor3 = c
         hex.Text = string.format("#%02X%02X%02X", math.floor(c.R*255+0.5), math.floor(c.G*255+0.5), math.floor(c.B*255+0.5))
-        modeLbl.Text = mode
+        modeLbl.Text = mode == "GradientRainbow" and "Gradient" or mode
         onChange(c, mode)
     end
     emit()
@@ -269,13 +283,13 @@ local function openColorPicker(parentGui, current, onChange)
         sv.BackgroundColor3 = Color3.fromHSV(h,1,1)
         emit()
     end)
-    btn("Rain", 66, function() mode = "Rainbow" emit() end)
+    btn("Rain", 66, function() mode = "GradientRainbow" emit() end)
     btn("StatR", 122, function() mode = "StaticRainbow" emit() end)
     btn("Close", 178, function() popup:Destroy() end)
 
     task.spawn(function()
         while popup.Parent do
-            if mode == "Rainbow" then emit() end
+            if mode == "GradientRainbow" or mode == "StaticRainbow" or mode == "Rainbow" then emit() end
             task.wait(0.05)
         end
     end)
@@ -293,6 +307,7 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
         return Lib.ScreenGui or game:GetService("CoreGui"):FindFirstChild("FlickLib")
     end
     local currentTheme, currentUIFont = "Default", "Fantasy"
+    UI._controls = UI._controls or {}
     local currentFontColor = Color3.fromRGB(255, 255, 255)
 
     local function colorChooser(label, getCol, setCol)
@@ -446,10 +461,10 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
     local TabCombat = Window:CreateTab("Combat")
     local GBSilent = TabCombat:CreateGroupbox("Silent Aim", "Left")
     local GBBot = TabCombat:CreateGroupbox("Bots / Audio", "Right")
-    GBSilent:AddToggle({Text = "Enabled", Default = Silent.Config.Enabled, Callback = function(v) Silent.Config.Enabled = v end})
+    UI._controls.SilentEnabled = GBSilent:AddToggle({Text = "Enabled", Default = Silent.Config.Enabled, Callback = function(v) Silent.Config.Enabled = v end})
     GBSilent:AddSlider({Text = "FOV", Min = 20, Max = 2000, Default = Silent.Config.FOV, Callback = function(v) Silent.Config.FOV = v end})
     GBSilent:AddSlider({Text = "Hit Chance", Min = 1, Max = 100, Default = Silent.Config.HitChance, Suffix = "%", Callback = function(v) Silent.Config.HitChance = v end})
-    GBSilent:AddToggle({Text = "Show FOV", Default = Silent.Config.ShowFOV, Callback = function(v) Silent.Config.ShowFOV = v end})
+    UI._controls.ShowFOV = GBSilent:AddToggle({Text = "Show FOV", Default = Silent.Config.ShowFOV, Callback = function(v) Silent.Config.ShowFOV = v end})
     GBSilent:AddDropdown({
         Text = "Hit Part", Values = {"Torso","Head","HumanoidRootPart","UpperTorso"}, Default = "Torso",
         Callback = function(v)
@@ -457,9 +472,9 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
             else Silent.Config.HitPart = v Silent.Config.PreferTorso = false end
         end,
     })
-    GBSilent:AddToggle({Text = "Visible Check", Default = Silent.Config.VisibleCheck, Callback = function(v) Silent.Config.VisibleCheck = v end})
-    GBSilent:AddToggle({Text = "Sticky Aim", Default = Silent.Config.Sticky, Callback = function(v) Silent.Config.Sticky = v end})
-    GBSilent:AddToggle({
+    UI._controls.VisibleCheck = GBSilent:AddToggle({Text = "Visible Check", Default = Silent.Config.VisibleCheck, Callback = function(v) Silent.Config.VisibleCheck = v end})
+    UI._controls.Sticky = GBSilent:AddToggle({Text = "Sticky Aim", Default = Silent.Config.Sticky, Callback = function(v) Silent.Config.Sticky = v end})
+    UI._controls.FOVRainbow = GBSilent:AddToggle({
         Text = "FOV Rainbow Gradient",
         Default = Silent.Config.FOVRainbow,
         Callback = function(v) Silent.Config.FOVRainbow = v end,
@@ -468,11 +483,23 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
         Text = "FOV Color — Choose Color",
         Callback = function()
             local g = guiRoot()
-            if g then openColorPicker(g, Silent.Config.FOVColor, function(c) Silent.Config.FOVColor = c end) end
+            if g then openColorPicker(g, Silent.Config.FOVColor, function(c, mode)
+                Silent.Config.FOVColor = c
+                if mode == "GradientRainbow" then
+                    Silent.Config.FOVRainbow = true
+                elseif mode == "StaticRainbow" or mode == "Rainbow" then
+                    Silent.Config.FOVRainbow = false
+                    -- solid loop on FOV circle
+                    Silent.Config.FOVColorLoop = true
+                else
+                    Silent.Config.FOVRainbow = false
+                    Silent.Config.FOVColorLoop = false
+                end
+            end) end
         end,
     })
-    GBBot:AddToggle({Text = "Triggerbot", Default = Silent.Config.Triggerbot, Callback = function(v) Silent.Config.Triggerbot = v end})
-    GBBot:AddToggle({Text = "Auto Shoot", Default = Silent.Config.AutoShoot, Callback = function(v) Silent.Config.AutoShoot = v end})
+    UI._controls.Triggerbot = GBBot:AddToggle({Text = "Triggerbot", Default = Silent.Config.Triggerbot, Callback = function(v) Silent.Config.Triggerbot = v end})
+    UI._controls.AutoShoot = GBBot:AddToggle({Text = "Auto Shoot", Default = Silent.Config.AutoShoot, Callback = function(v) Silent.Config.AutoShoot = v end})
 
     if Config then
         local killDD = GBBot:AddDropdown({
@@ -560,12 +587,12 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
     local TabESP = Window:CreateTab("ESP")
     local GBESP = TabESP:CreateGroupbox("ESP", "Left")
     local GBStyle = TabESP:CreateGroupbox("Style", "Right")
-    GBESP:AddToggle({Text = "Enabled", Default = ESP.Config.Enabled, Callback = function(v) ESP.Config.Enabled = v end})
-    GBESP:AddToggle({Text = "Boxes", Default = ESP.Config.Boxes, Callback = function(v) ESP.Config.Boxes = v end})
-    GBESP:AddToggle({Text = "Names", Default = ESP.Config.Names, Callback = function(v) ESP.Config.Names = v end})
-    GBESP:AddToggle({Text = "Distance", Default = ESP.Config.Distance, Callback = function(v) ESP.Config.Distance = v end})
-    GBESP:AddToggle({Text = "Tracers", Default = ESP.Config.Tracers, Callback = function(v) ESP.Config.Tracers = v end})
-    GBESP:AddToggle({Text = "Chams", Default = ESP.Config.Chams, Callback = function(v) ESP.Config.Chams = v end})
+    UI._controls.ESPEnabled = GBESP:AddToggle({Text = "Enabled", Default = ESP.Config.Enabled, Callback = function(v) ESP.Config.Enabled = v end})
+    UI._controls.ESPBoxes = GBESP:AddToggle({Text = "Boxes", Default = ESP.Config.Boxes, Callback = function(v) ESP.Config.Boxes = v end})
+    UI._controls.ESPNames = GBESP:AddToggle({Text = "Names", Default = ESP.Config.Names, Callback = function(v) ESP.Config.Names = v end})
+    UI._controls.ESPDist = GBESP:AddToggle({Text = "Distance", Default = ESP.Config.Distance, Callback = function(v) ESP.Config.Distance = v end})
+    UI._controls.ESPTracers = GBESP:AddToggle({Text = "Tracers", Default = ESP.Config.Tracers, Callback = function(v) ESP.Config.Tracers = v end})
+    UI._controls.ESPChams = GBESP:AddToggle({Text = "Chams", Default = ESP.Config.Chams, Callback = function(v) ESP.Config.Chams = v end})
     GBESP:AddToggle({Text = "Chams Outline", Default = true, Callback = function(v) ESP.Config.ChamsOutline = v end})
     GBESP:AddSlider({Text = "Chams Fill", Min = 0, Max = 90, Default = 45, Callback = function(v) ESP.Config.ChamsFill = v/100 end})
     GBStyle:AddDropdown({Text = "Name Origin", Values = {"Username","DisplayName"}, Default = "Username", Callback = function(v) ESP.Config.NameOrigin = v end})
@@ -762,6 +789,28 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
         if UI._profileDD then
             UI._profileDD.SetValues(UI._profileDD, Config.ListProfiles())
         end
+
+        -- sync UI control visuals from loaded config (silent = no re-callback)
+        local C = UI._controls
+        if C then
+            local function st(ctrl, val)
+                if ctrl and ctrl.Set then ctrl.Set(ctrl, val, true) end
+            end
+            st(C.SilentEnabled, Silent.Config.Enabled)
+            st(C.ShowFOV, Silent.Config.ShowFOV)
+            st(C.VisibleCheck, Silent.Config.VisibleCheck)
+            st(C.Sticky, Silent.Config.Sticky)
+            st(C.Triggerbot, Silent.Config.Triggerbot)
+            st(C.AutoShoot, Silent.Config.AutoShoot)
+            st(C.FOVRainbow, Silent.Config.FOVRainbow)
+            st(C.NoReload, Silent.Config.NoReload)
+            st(C.ESPEnabled, ESP.Config.Enabled)
+            st(C.ESPBoxes, ESP.Config.Boxes)
+            st(C.ESPNames, ESP.Config.Names)
+            st(C.ESPDist, ESP.Config.Distance)
+            st(C.ESPTracers, ESP.Config.Tracers)
+            st(C.ESPChams, ESP.Config.Chams)
+        end
     end
 
     GBSave:AddButton({
@@ -780,6 +829,28 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
             local feat = Config.LoadProfile(name)
             if not feat then print("[LarpSec] profile not found: " .. tostring(name)) return end
             applyFeatures(feat)
+            
+        -- sync UI control visuals from loaded config (silent = no re-callback)
+        local C = UI._controls
+        if C then
+            local function st(ctrl, val)
+                if ctrl and ctrl.Set then ctrl.Set(ctrl, val, true) end
+            end
+            st(C.SilentEnabled, Silent.Config.Enabled)
+            st(C.ShowFOV, Silent.Config.ShowFOV)
+            st(C.VisibleCheck, Silent.Config.VisibleCheck)
+            st(C.Sticky, Silent.Config.Sticky)
+            st(C.Triggerbot, Silent.Config.Triggerbot)
+            st(C.AutoShoot, Silent.Config.AutoShoot)
+            st(C.FOVRainbow, Silent.Config.FOVRainbow)
+            st(C.NoReload, Silent.Config.NoReload)
+            st(C.ESPEnabled, ESP.Config.Enabled)
+            st(C.ESPBoxes, ESP.Config.Boxes)
+            st(C.ESPNames, ESP.Config.Names)
+            st(C.ESPDist, ESP.Config.Distance)
+            st(C.ESPTracers, ESP.Config.Tracers)
+            st(C.ESPChams, ESP.Config.Chams)
+        end
             print("[LarpSec] loaded profile: " .. tostring(name))
         end,
     })
@@ -937,7 +1008,7 @@ local addType = "Kill"
 
     local TabBeta = Window:CreateTab("Beta")
     local GBExp = TabBeta:CreateGroupbox("Experimental", "Left")
-    GBExp:AddToggle({
+    UI._controls.NoReload = GBExp:AddToggle({
         Text = "No Reload", Default = Silent.Config.NoReload, Callback = function(v) Silent.Config.NoReload = v end,
     })
     
