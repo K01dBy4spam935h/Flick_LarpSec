@@ -76,14 +76,17 @@ end
 local function applyTheme(window, themeName, fontName, fontColor)
     local theme = Themes[themeName] or Themes.Default
     pcall(function()
-        startAnimatedBackground(window, theme)
+        local bgOn = Perf and Perf.UIBgActive
+        if not bgOn then
+            startAnimatedBackground(window, theme)
+        end
         local root = window.Frame
         if not root then return end
         local tc = fontColor or theme.Text or Color3.new(1, 1, 1)
         for _, d in ipairs(root:GetDescendants()) do
             if d:IsA("Frame") then
                 local n = d.Name:lower()
-                if n:find("group") then d.BackgroundColor3 = Color3.new(1,1,1) end
+                if n:find("group") and not bgOn then d.BackgroundColor3 = Color3.new(1,1,1) end
                 if n == "sliderfill" or n == "fill" then d.BackgroundColor3 = theme.Accent end
             end
             if d:IsA("UIStroke") then d.Color = theme.Border end
@@ -91,12 +94,18 @@ local function applyTheme(window, themeName, fontName, fontColor)
                 if fontName then
                     pcall(function() d.Font = Enum.Font[fontName] end)
                 end
-                -- skip pure accent-only labels if any; recolor main text
                 pcall(function()
                     if d.TextTransparency < 1 then
                         d.TextColor3 = tc
                     end
                 end)
+            end
+        end
+        if bgOn and root then
+            root.BackgroundTransparency = 1
+            for _, name in ipairs({"TopBar", "Sidebar", "Content"}) do
+                local f = root:FindFirstChild(name)
+                if f then f.BackgroundTransparency = 0.65 end
             end
         end
     end)
@@ -410,7 +419,14 @@ function UI.Init(Silent, ESP, Anti, Perf, Config, KillSound)
     task.spawn(function()
         while Window.Frame and Window.Frame.Parent do
             local ping = 0
-            pcall(function() ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
+            pcall(function()
+                -- same units as Roblox player list / shift-lock style network ping
+                if LocalPlayer.GetNetworkPing then
+                    ping = math.floor(LocalPlayer:GetNetworkPing() * 1000 + 0.5)
+                else
+                    ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue() + 0.5)
+                end
+            end)
             pcall(function()
                 for _, d in ipairs(Window.Frame:GetDescendants()) do
                     if d:IsA("TextLabel") and d.Text:find("Latency:") then
@@ -929,13 +945,117 @@ local addType = "Kill"
     local GBInfo = TabInfo:CreateGroupbox("Features", "Left")
     local GBSnd = TabInfo:CreateGroupbox("Assets", "Right")
     GBInfo:AddLabel("LarpSec - Flick v1")
-    GBInfo:AddLabel("RightShift · menu")
+    GBInfo:AddLabel("RightShift / LS button · menu")
     GBInfo:AddLabel("Title bar · drag")
     GBSnd:AddLabel("Add assets in Config tab")
     GBSnd:AddLabel("Save persists custom IDs")
     GBSnd:AddLabel("Images: rbxassetid + thumb fallback")
 
-    Window.Frame.Visible = true
+
+    -- Mobile / minimize open button
+    local openBtnGui = Instance.new("ScreenGui")
+    openBtnGui.Name = "LarpSecOpen"
+    openBtnGui.ResetOnSpawn = false
+    openBtnGui.IgnoreGuiInset = true
+    openBtnGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    pcall(function() openBtnGui.Parent = game:GetService("CoreGui") end)
+    if not openBtnGui.Parent then
+        openBtnGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    end
+    local openBtn = Instance.new("TextButton")
+    openBtn.Name = "Open"
+    openBtn.Size = UDim2.new(0, 52, 0, 52)
+    openBtn.Position = UDim2.new(1, -70, 0.5, -26)
+    openBtn.BackgroundColor3 = Color3.fromRGB(18, 20, 28)
+    openBtn.Text = "LS"
+    openBtn.TextColor3 = Color3.fromRGB(74, 144, 226)
+    openBtn.TextSize = 16
+    openBtn.Font = Enum.Font.GothamBold
+    openBtn.AutoButtonColor = false
+    openBtn.Visible = false
+    openBtn.Parent = openBtnGui
+    Instance.new("UICorner", openBtn).CornerRadius = UDim.new(1, 0)
+    local openStroke = Instance.new("UIStroke")
+    openStroke.Color = Color3.fromRGB(74, 144, 226)
+    openStroke.Thickness = 1.5
+    openStroke.Parent = openBtn
+
+    -- drag open button
+    do
+        local dragging, dragStart, startPos
+        openBtn.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1
+                or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+                dragStart = input.Position
+                startPos = openBtn.Position
+            end
+        end)
+        game:GetService("UserInputService").InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1
+                or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = false
+            end
+        end)
+        game:GetService("UserInputService").InputChanged:Connect(function(input)
+            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+                or input.UserInputType == Enum.UserInputType.Touch) then
+                local d = input.Position - dragStart
+                openBtn.Position = UDim2.new(
+                    startPos.X.Scale, startPos.X.Offset + d.X,
+                    startPos.Y.Scale, startPos.Y.Offset + d.Y
+                )
+            end
+        end)
+    end
+
+    local function setMenuOpen(open)
+        Window.Frame.Visible = open
+        openBtn.Visible = not open
+    end
+
+    openBtn.MouseButton1Click:Connect(function()
+        setMenuOpen(true)
+    end)
+
+    -- close/minimize: X on top bar if present, else we add one
+    pcall(function()
+        local top = Window.Frame:FindFirstChild("TopBar")
+        if top then
+            local existing = top:FindFirstChild("MinimizeBtn")
+            if existing then existing:Destroy() end
+            local minBtn = Instance.new("TextButton")
+            minBtn.Name = "MinimizeBtn"
+            minBtn.Size = UDim2.new(0, 28, 0, 20)
+            minBtn.Position = UDim2.new(1, -34, 0.5, -10)
+            minBtn.BackgroundColor3 = Color3.fromRGB(40, 42, 55)
+            minBtn.Text = "—"
+            minBtn.TextColor3 = Color3.new(1, 1, 1)
+            minBtn.TextSize = 14
+            minBtn.Font = Enum.Font.GothamBold
+            minBtn.Parent = top
+            Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 4)
+            minBtn.MouseButton1Click:Connect(function()
+                setMenuOpen(false)
+            end)
+        end
+    end)
+
+    -- keep RightShift toggle in sync with open button
+    pcall(function()
+        local UIS = game:GetService("UserInputService")
+        UIS.InputBegan:Connect(function(input, gp)
+            if gp then return end
+            if input.KeyCode == Enum.KeyCode.RightShift then
+                task.defer(function()
+                    openBtn.Visible = not Window.Frame.Visible
+                end)
+            end
+        end)
+    end)
+
+
+    setMenuOpen(true)
 
 
     -- Credits
